@@ -6,6 +6,12 @@ async function login(req, res, next) {
   try {
     const { email, password } = req.body;
     if (!email || !password) return res.status(400).json({ error: 'Email y contraseña requeridos' });
+    if (typeof email !== 'string' || typeof password !== 'string')
+      return res.status(400).json({ error: 'Datos inválidos' });
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email))
+      return res.status(400).json({ error: 'Email inválido' });
+    if (password.length > 128)
+      return res.status(400).json({ error: 'Datos inválidos' });
 
     const [rows] = await db.query('SELECT * FROM agents WHERE email = ? AND active = 1', [email]);
     if (!rows.length) return res.status(401).json({ error: 'Credenciales inválidas' });

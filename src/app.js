@@ -30,10 +30,11 @@ app.use(cors({
   origin: (origin, cb) => cb(null, !origin || allowedOrigins.includes(origin)),
   credentials: true,
 }));
-app.use(express.json({ limit: '10mb' }));
+app.use(express.json({ limit: '2mb' }));
 app.use(express.urlencoded({ extended: true }));
 
-app.use(rateLimit({ windowMs: 15 * 60 * 1000, max: 200, standardHeaders: true }));
+// Global rate limit
+app.use(rateLimit({ windowMs: 15 * 60 * 1000, max: 200, standardHeaders: true, legacyHeaders: false }));
 
 app.use('/api/auth', authRoutes);
 app.use('/api/signatures', signaturesRoutes);

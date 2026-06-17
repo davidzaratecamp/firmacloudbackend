@@ -104,6 +104,12 @@ async function submitSignature(req, res, next) {
     if (!signatureDataUrl || !signerName) {
       return res.status(400).json({ error: 'Firma y nombre requeridos' });
     }
+    if (typeof signerName !== 'string' || signerName.length > 150)
+      return res.status(400).json({ error: 'Nombre inválido' });
+    if (typeof signatureDataUrl !== 'string' || !signatureDataUrl.startsWith('data:image/png;base64,'))
+      return res.status(400).json({ error: 'Formato de firma inválido' });
+    if (Buffer.byteLength(signatureDataUrl, 'utf8') > 1.5 * 1024 * 1024)
+      return res.status(400).json({ error: 'Imagen de firma demasiado grande' });
 
     const [rows] = await db.query('SELECT * FROM signature_requests WHERE token = ?', [token]);
     if (!rows.length) return res.status(404).json({ error: 'No encontrado' });
