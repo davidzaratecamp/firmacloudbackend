@@ -10,7 +10,7 @@ async function apiKeyOrAuth(req, res, next) {
       return res.status(401).json({ error: 'API key inválida' });
     }
     // Inject a system user for API key calls
-    req.user = { id: 1, name: 'Intranet Integration', role: 'agent' };
+    req.user = { id: 1, name: 'Intranet Integration', role: 'agent', isApiKey: true };
     return next();
   }
 

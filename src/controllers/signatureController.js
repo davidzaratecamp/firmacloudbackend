@@ -6,7 +6,7 @@ const { generateSecureToken, getTokenExpiry } = require('../utils/token');
 const { hashFile } = require('../utils/hash');
 const { sendSignatureRequest } = require('../services/emailService');
 const { sendSignatureWhatsApp } = require('../services/whatsappService');
-const { generateCertificate } = require('../services/pdfService');
+const { generateCertificate, mergePDFs } = require('../services/pdfService');
 const { triggerWebhook } = require('../services/webhookService');
 
 const UPLOADS_DIR = path.resolve(process.env.UPLOADS_DIR || path.join(__dirname, '../../uploads'));
@@ -133,15 +133,29 @@ async function getSignature(req, res, next) {
 async function downloadSignedDocument(req, res, next) {
   try {
     const { id } = req.params;
-    const ownerFilter = req.user.role !== 'admin' ? 'AND agent_id = ?' : '';
-    const params = req.user.role !== 'admin' ? [id, req.user.id] : [id];
-    const [rows] = await db.query(`SELECT * FROM signature_requests WHERE id = ? ${ownerFilter}`, params);
+    const isApiKey = req.user.isApiKey;
+    const ownerFilter = (req.user.role !== 'admin' && !isApiKey) ? 'AND sr.agent_id = ?' : '';
+    const params = (req.user.role !== 'admin' && !isApiKey) ? [id, req.user.id] : [id];
+    const [rows] = await db.query(
+      `SELECT sr.*, a.name AS agent_name FROM signature_requests sr JOIN agents a ON sr.agent_id = a.id WHERE sr.id = ? ${ownerFilter}`,
+      params
+    );
     if (!rows.length) return res.status(404).json({ error: 'No encontrado' });
 
     const sig = rows[0];
     if (!sig.signed_document_path) return res.status(400).json({ error: 'Documento aún no firmado' });
 
-    res.download(path.resolve(sig.signed_document_path), `FIRMADO-${sig.document_name}`);
+    const [logs] = await db.query(
+      'SELECT * FROM activity_logs WHERE signature_request_id = ? ORDER BY created_at ASC', [id]
+    );
+
+    const signedBuffer = await fs.readFile(path.resolve(sig.signed_document_path));
+    const certBuffer = await generateCertificate(sig, logs);
+    const mergedBuffer = await mergePDFs(signedBuffer, Buffer.from(certBuffer));
+
+    res.setHeader('Content-Type', 'application/pdf');
+    res.setHeader('Content-Disposition', `attachment; filename="FIRMADO-${sig.document_name}"`);
+    res.send(Buffer.from(mergedBuffer));
   } catch (err) {
     next(err);
   }

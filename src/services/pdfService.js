@@ -155,4 +155,15 @@ async function generateCertificate(sig, logs) {
   return await pdfDoc.save();
 }
 
-module.exports = { stampSignature, generateCertificate };
+async function mergePDFs(pdf1Buffer, pdf2Buffer) {
+  const merged = await PDFDocument.create();
+  const doc1 = await PDFDocument.load(pdf1Buffer);
+  const doc2 = await PDFDocument.load(pdf2Buffer);
+  const pages1 = await merged.copyPages(doc1, doc1.getPageIndices());
+  const pages2 = await merged.copyPages(doc2, doc2.getPageIndices());
+  pages1.forEach(p => merged.addPage(p));
+  pages2.forEach(p => merged.addPage(p));
+  return await merged.save();
+}
+
+module.exports = { stampSignature, generateCertificate, mergePDFs };

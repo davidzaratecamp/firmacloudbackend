@@ -53,10 +53,13 @@ async function sendSignatureRequest({ clientName, clientEmail, token, documentNa
 </body>
 </html>`;
 
+  const text = `Estimado/a ${clientName},\n\n${agentName} de Asiste Health Care le ha enviado el documento "${documentName}" para que lo revise y firme digitalmente.\n\nAcceda al siguiente enlace para firmar (válido por 72 horas):\n${signingUrl}\n\nEste enlace es de un solo uso.\n\nAsiste Health Care\nsoporte@asistehealth.com`;
+
   await transporter.sendMail({
     from: `"${process.env.SMTP_FROM_NAME}" <${process.env.SMTP_FROM_EMAIL}>`,
     to: clientEmail,
     subject: `Documento pendiente de firma: ${documentName}`,
+    text,
     html,
   });
 }
