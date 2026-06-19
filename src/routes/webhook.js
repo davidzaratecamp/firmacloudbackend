@@ -1,5 +1,28 @@
 const express = require('express');
 const router = express.Router();
+require('dotenv').config();
+
+const NO_REPLY_TEXT = 'Este número es solo para el envío de notificaciones de Asiste Health Care y no está habilitado para recibir mensajes. Para asistencia, escríbenos a soporte@asistehealth.com';
+
+async function sendAutoReply(to) {
+  try {
+    await fetch(`https://graph.facebook.com/v25.0/${process.env.WHATSAPP_PHONE_NUMBER_ID}/messages`, {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${process.env.WHATSAPP_ACCESS_TOKEN}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        messaging_product: 'whatsapp',
+        to,
+        type: 'text',
+        text: { body: NO_REPLY_TEXT },
+      }),
+    });
+  } catch (err) {
+    console.error('[webhook] Error enviando auto-reply:', err.message);
+  }
+}
 
 // Meta webhook verification (GET)
 router.get('/', (req, res) => {
@@ -28,9 +51,10 @@ router.post('/', (req, res) => {
         console.log(`[webhook] Mensaje ${status.id} → status: ${status.status}${status.errors ? ' | errores: ' + JSON.stringify(status.errors) : ''}`);
       }
 
-      // Incoming messages
+      // Incoming messages — auto-reply
       for (const msg of value.messages || []) {
-        console.log(`[webhook] Mensaje entrante de ${msg.from}: ${JSON.stringify(msg)}`);
+        console.log(`[webhook] Mensaje entrante de ${msg.from} — enviando auto-reply`);
+        sendAutoReply(msg.from);
       }
     }
   }
