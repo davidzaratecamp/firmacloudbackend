@@ -34,7 +34,6 @@ CREATE TABLE signature_requests (
   signer_device VARCHAR(100) NULL,
   signer_geolocation JSON NULL,
   signed_document_path VARCHAR(500) NULL,
-  certificate_path VARCHAR(500) NULL,
   webhook_url VARCHAR(500) NULL,
   created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
   updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
