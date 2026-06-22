@@ -13,12 +13,16 @@ const UPLOADS_DIR = path.resolve(process.env.UPLOADS_DIR || path.join(__dirname,
 
 async function sendDocument(req, res, next) {
   try {
-    const { clientName, clientEmail, clientPhone, sendChannel = 'email', webhookUrl } = req.body;
+    const { clientName, clientEmail, clientPhone, sendChannel = 'email', webhookUrl, agentName, agentCedula } = req.body;
     if (!clientName) return res.status(400).json({ error: 'Nombre del cliente requerido' });
     if ((sendChannel === 'email' || sendChannel === 'both') && !clientEmail)
       return res.status(400).json({ error: 'Email requerido para envío por correo' });
     if ((sendChannel === 'whatsapp' || sendChannel === 'both') && !clientPhone)
       return res.status(400).json({ error: 'Teléfono requerido para envío por WhatsApp' });
+    if (req.user.isApiKey) {
+      if (!agentName) return res.status(400).json({ error: 'Nombre del agente requerido' });
+      if (!agentCedula) return res.status(400).json({ error: 'Cédula del agente requerida' });
+    }
 
     const rootPdfPath = path.join(__dirname, '../../../carta-tratamiento-de-datos.pdf');
 
@@ -41,9 +45,9 @@ async function sendDocument(req, res, next) {
 
     await db.query(
       `INSERT INTO signature_requests
-       (id, agent_id, document_name, document_original_path, document_hash, client_name, client_email, client_phone, send_channel, token, token_expires_at, webhook_url)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-      [id, req.user.id, docName, uploadPath, docHash, clientName, clientEmail || null, clientPhone || null, sendChannel, token, tokenExpiry, webhookUrl || null]
+       (id, agent_id, document_name, document_original_path, document_hash, client_name, client_email, client_phone, send_channel, token, token_expires_at, agent_name_sent, agent_cedula, webhook_url)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      [id, req.user.id, docName, uploadPath, docHash, clientName, clientEmail || null, clientPhone || null, sendChannel, token, tokenExpiry, agentName || null, agentCedula || null, webhookUrl || null]
     );
 
     await db.query(

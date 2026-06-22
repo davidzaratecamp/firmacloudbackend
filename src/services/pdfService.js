@@ -94,7 +94,9 @@ async function generateCertificate(sig, logs) {
   drawSection('PARTES INVOLUCRADAS');
   drawRow('Nombre del Firmante', sig.signer_name || sig.client_name);
   drawRow('Email del Cliente', sig.client_email);
-  drawRow('Agente que Envió', sig.agent_name || 'N/A');
+  drawRow('Teléfono del Cliente', sig.client_phone);
+  drawRow('Agente que Envió', sig.agent_name_sent || sig.agent_name);
+  drawRow('Cédula del Agente', sig.agent_cedula);
 
   // Timestamps
   drawSection('REGISTRO DE FECHAS Y HORAS (UTC)');
