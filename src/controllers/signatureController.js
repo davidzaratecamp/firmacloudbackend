@@ -8,6 +8,7 @@ const { sendSignatureRequest } = require('../services/emailService');
 const { sendSignatureWhatsApp } = require('../services/whatsappService');
 const { generateCertificate, mergePDFs } = require('../services/pdfService');
 const { triggerWebhook } = require('../services/webhookService');
+const { getServerLocation } = require('../utils/serverLocation');
 
 const UPLOADS_DIR = path.resolve(process.env.UPLOADS_DIR || path.join(__dirname, '../../uploads'));
 
@@ -43,11 +44,13 @@ async function sendDocument(req, res, next) {
     const token = generateSecureToken();
     const tokenExpiry = getTokenExpiry(parseInt(process.env.TOKEN_EXPIRES_HOURS) || 72);
 
+    const serverLoc = getServerLocation();
+
     await db.query(
       `INSERT INTO signature_requests
-       (id, agent_id, document_name, document_original_path, document_hash, client_name, client_email, client_phone, send_channel, token, token_expires_at, agent_name_sent, agent_cedula, webhook_url)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-      [id, req.user.id, docName, uploadPath, docHash, clientName, clientEmail || null, clientPhone || null, sendChannel, token, tokenExpiry, agentName || null, agentCedula || null, webhookUrl || null]
+       (id, agent_id, document_name, document_original_path, document_hash, client_name, client_email, client_phone, send_channel, token, token_expires_at, agent_name_sent, agent_cedula, sent_from_ip, sent_from_location, webhook_url)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      [id, req.user.id, docName, uploadPath, docHash, clientName, clientEmail || null, clientPhone || null, sendChannel, token, tokenExpiry, agentName || null, agentCedula || null, serverLoc?.ip || null, serverLoc?.location || null, webhookUrl || null]
     );
 
     await db.query(

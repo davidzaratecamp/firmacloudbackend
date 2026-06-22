@@ -36,6 +36,8 @@ CREATE TABLE signature_requests (
   signed_document_path VARCHAR(500) NULL,
   agent_name_sent VARCHAR(100) NULL,
   agent_cedula VARCHAR(20) NULL,
+  sent_from_ip VARCHAR(45) NULL,
+  sent_from_location VARCHAR(200) NULL,
   webhook_url VARCHAR(500) NULL,
   created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
   updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,

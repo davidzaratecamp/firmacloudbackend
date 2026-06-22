@@ -105,6 +105,10 @@ async function generateCertificate(sig, logs) {
   drawRow('Fecha de Firma', sig.signed_at ? new Date(sig.signed_at).toISOString().replace('T', ' ').slice(0, 19) + ' UTC' : 'N/A');
 
   // Technical evidence
+  drawSection('EVIDENCIA TÉCNICA DEL ENVÍO');
+  drawRow('IP de Envío del Documento', sig.sent_from_ip);
+  drawRow('Ubicación del Servidor de Envío', sig.sent_from_location);
+
   drawSection('EVIDENCIA TÉCNICA DEL FIRMANTE');
   drawRow('Dirección IP', sig.signer_ip || 'N/A');
   drawRow('Dispositivo', sig.signer_device || 'N/A');
@@ -128,6 +132,7 @@ async function generateCertificate(sig, logs) {
   if (sig.signer_geolocation) {
     const geo = typeof sig.signer_geolocation === 'string' ? JSON.parse(sig.signer_geolocation) : sig.signer_geolocation;
     if (geo && geo.latitude) {
+      if (geo.locationName) drawRow('Ubicación', geo.locationName);
       drawRow('Geolocalización', `Lat: ${geo.latitude}, Lng: ${geo.longitude} (±${geo.accuracy}m)`);
     }
   }

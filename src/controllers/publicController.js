@@ -6,6 +6,16 @@ const { stampSignature } = require('../services/pdfService');
 const { hashBuffer } = require('../utils/hash');
 const { triggerWebhook } = require('../services/webhookService');
 
+function buildWebhookBase(sig) {
+  return {
+    id: sig.id,
+    clientName: sig.client_name,
+    clientEmail: sig.client_email,
+    clientPhone: sig.client_phone,
+    documentName: sig.document_name,
+  };
+}
+
 const SIGNED_DIR = path.resolve(process.env.SIGNED_DIR || path.join(__dirname, '../../signed'));
 
 function getClientIP(req) {
@@ -23,7 +33,7 @@ async function getSigningPage(req, res, next) {
   try {
     const { token } = req.params;
     const [rows] = await db.query(
-      'SELECT id, document_name, client_name, status, token_expires_at FROM signature_requests WHERE token = ?',
+      'SELECT id, document_name, client_name, client_email, client_phone, status, token_expires_at, webhook_url FROM signature_requests WHERE token = ?',
       [token]
     );
 
@@ -32,6 +42,7 @@ async function getSigningPage(req, res, next) {
     const sig = rows[0];
     if (new Date() > new Date(sig.token_expires_at)) {
       await db.query("UPDATE signature_requests SET status = 'expired' WHERE id = ?", [sig.id]);
+      if (sig.webhook_url) triggerWebhook(sig.webhook_url, { ...buildWebhookBase(sig), event: 'document.expired', expiredAt: new Date().toISOString() });
       return res.status(410).json({ error: 'Este enlace ha expirado' });
     }
     if (sig.status === 'signed') return res.status(409).json({ error: 'Este documento ya fue firmado' });
@@ -51,7 +62,9 @@ async function recordView(req, res, next) {
 
     const sig = rows[0];
     if (sig.status === 'pending') {
-      await db.query("UPDATE signature_requests SET status = 'viewed', viewed_at = NOW() WHERE id = ?", [sig.id]);
+      const viewedAt = new Date();
+      await db.query("UPDATE signature_requests SET status = 'viewed', viewed_at = ? WHERE id = ?", [viewedAt, sig.id]);
+      if (sig.webhook_url) triggerWebhook(sig.webhook_url, { ...buildWebhookBase(sig), event: 'document.viewed', viewedAt: viewedAt.toISOString() });
     }
 
     const ip = getClientIP(req);
@@ -119,6 +132,7 @@ async function submitSignature(req, res, next) {
     if (sig.status === 'expired') return res.status(410).json({ error: 'Expirado' });
     if (new Date() > new Date(sig.token_expires_at)) {
       await db.query("UPDATE signature_requests SET status = 'expired' WHERE id = ?", [sig.id]);
+      if (sig.webhook_url) triggerWebhook(sig.webhook_url, { ...buildWebhookBase(sig), event: 'document.expired', expiredAt: new Date().toISOString() });
       return res.status(410).json({ error: 'Enlace expirado' });
     }
 

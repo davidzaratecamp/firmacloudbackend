@@ -2,6 +2,7 @@ const app = require('./app');
 const path = require('path');
 const fs = require('fs');
 require('dotenv').config({ path: path.join(__dirname, '../.env') });
+const { resolveServerLocation } = require('./utils/serverLocation');
 
 const PORT = process.env.PORT || 3000;
 const ROOT = path.join(__dirname, '..');
@@ -18,4 +19,5 @@ process.env.CERTIFICATES_DIR = resolvedir(process.env.CERTIFICATES_DIR, 'certifi
 
 app.listen(PORT, () => {
   console.log(`FirmaCloud API running on port ${PORT}`);
+  resolveServerLocation();
 });
