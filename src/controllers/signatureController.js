@@ -6,7 +6,7 @@ const { generateSecureToken, getTokenExpiry } = require('../utils/token');
 const { hashFile } = require('../utils/hash');
 const { sendSignatureRequest } = require('../services/emailService');
 const { sendSignatureWhatsApp } = require('../services/whatsappService');
-const { generateCertificate, mergePDFs } = require('../services/pdfService');
+const { generateCertificate } = require('../services/pdfService');
 const { triggerWebhook } = require('../services/webhookService');
 const { getServerLocation } = require('../utils/serverLocation');
 
@@ -157,12 +157,10 @@ async function downloadSignedDocument(req, res, next) {
     );
 
     const signedBuffer = await fs.readFile(path.resolve(sig.signed_document_path));
-    const certBuffer = await generateCertificate(sig, logs);
-    const mergedBuffer = await mergePDFs(signedBuffer, Buffer.from(certBuffer));
 
     res.setHeader('Content-Type', 'application/pdf');
     res.setHeader('Content-Disposition', `attachment; filename="FIRMADO-${sig.document_name}"`);
-    res.send(Buffer.from(mergedBuffer));
+    res.send(Buffer.from(signedBuffer));
   } catch (err) {
     next(err);
   }
