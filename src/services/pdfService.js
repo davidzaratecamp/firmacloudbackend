@@ -80,11 +80,16 @@ async function generateCertificate(sig, logs) {
     const page = pdfDoc.addPage([W, H]);
     let y = H - 40;
 
-    page.drawRectangle({ x: 0, y: H - 100, width: W, height: 100, color: rgb(0.12, 0.23, 0.37) });
-    page.drawText('SUMARIUM DE FIRMA DIGITAL', { x: M, y: H - 45, size: 20, font: fontBold, color: rgb(1, 1, 1) });
-    page.drawText('Evidencia Legal de Firma Electrónica - FirmaCloud', { x: M, y: H - 68, size: 11, font, color: rgb(0.58, 0.76, 1) });
-    page.drawText('Asiste Health Care', { x: M, y: H - 86, size: 10, font, color: rgb(0.7, 0.85, 1) });
-    y = H - 130;
+    page.drawRectangle({ x: 0, y: H - 110, width: W, height: 110, color: rgb(0.12, 0.23, 0.37) });
+    page.drawText('SUMARIUM DE FIRMA DIGITAL', { x: M, y: H - 42, size: 20, font: fontBold, color: rgb(1, 1, 1) });
+    page.drawText('Evidencia Legal de Firma Electrónica - FirmaCloud', { x: M, y: H - 64, size: 11, font, color: rgb(0.58, 0.76, 1) });
+    // Company info — right side
+    page.drawText('Asiste Health Care', { x: 360, y: H - 42, size: 11, font: fontBold, color: rgb(1, 1, 1) });
+    page.drawText('EIN 93-3452400', { x: 360, y: H - 58, size: 9, font, color: rgb(0.85, 0.92, 1) });
+    page.drawText('5345 SW 34TH AVE', { x: 360, y: H - 72, size: 9, font, color: rgb(0.7, 0.85, 1) });
+    page.drawText('FORT LAUDERDALE, FL 33312', { x: 360, y: H - 85, size: 9, font, color: rgb(0.7, 0.85, 1) });
+    page.drawText('admin@asistehealth.com', { x: 360, y: H - 98, size: 8, font, color: rgb(0.6, 0.78, 1) });
+    y = H - 140;
 
     const drawSection = (title) => {
       y -= 20;
@@ -320,18 +325,21 @@ async function generateCertificate(sig, logs) {
 
     writeHeading('How to contact Asiste Health Care');
     writeParagraph('You may contact us to let us know of your changes as to how we may contact you electronically, to request paper copies of certain information from us, and to withdraw your prior consent to receive notices and disclosures electronically as follows:');
+    writeParagraph('Asiste Health Care', { bold: true });
+    writeLine('5345 SW 34TH AVE, Fort Lauderdale, FL 33312');
+    writeLine('EIN: 93-3452400');
     writeParagraph('To contact us by email send messages to: admin@asistehealth.com');
 
     writeHeading('To advise Asiste Health Care of your new email address');
-    writeParagraph('To let us know of a change in your email address where we should send notices and disclosures electronically to you, you must send an email message to us at admin@asistehealth.com and in the body of such request you must state: your previous email address, your new email address. We do not require any other information from you to change your email address.');
+    writeParagraph('To let us know of a change in your email address, you must send an email message to us at admin@asistehealth.com stating: your previous email address and your new email address. We do not require any other information from you to change your email address.');
 
     writeHeading('To request paper copies from Asiste Health Care');
-    writeParagraph('To request delivery from us of paper copies of the notices and disclosures previously provided by us to you electronically, you must send us an email to admin@asistehealth.com and in the body of such request you must state your email address, full name, mailing address, and telephone number.');
+    writeParagraph('To request delivery of paper copies of the notices and disclosures previously provided electronically, you must send us an email to admin@asistehealth.com stating your email address, full name, mailing address, and telephone number.');
 
     writeHeading('To withdraw your consent with Asiste Health Care');
     writeParagraph('To inform us that you no longer wish to receive future notices and disclosures in electronic format you may:');
     writeParagraph('i. Decline to sign a document from within your signing session, or you may;', { indent: 15 });
-    writeParagraph('ii. Send us an email to admin@asistehealth.com and in the body of such request you must state your email, full name, mailing address, and telephone number. The consequences of your withdrawing consent for online documents will be that transactions may take a longer time to process.', { indent: 15 });
+    writeParagraph('ii. Send us an email to admin@asistehealth.com stating your email, full name, mailing address, and telephone number. Mailing address: 5345 SW 34TH AVE, Fort Lauderdale, FL 33312. The consequences of your withdrawing consent for online documents will be that transactions may take a longer time to process.', { indent: 15 });
 
     writeHeading('Required hardware and software');
     writeParagraph('To access and retain the disclosures and notices electronically, you will need: a device (computer, tablet, or smartphone) with internet access, a current web browser with JavaScript enabled, and the ability to receive email or WhatsApp messages. Recommended browsers: Chrome 90+, Safari 14+, Firefox 88+, or Edge 90+.');
