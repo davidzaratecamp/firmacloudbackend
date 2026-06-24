@@ -112,10 +112,13 @@ async function getDocumentForSigning(req, res, next) {
 async function submitSignature(req, res, next) {
   try {
     const { token } = req.params;
-    const { signatureDataUrl, signerName, geolocation } = req.body;
+    const { signatureDataUrl, signerName, geolocation, ersdAccepted } = req.body;
 
     if (!signatureDataUrl || !signerName) {
       return res.status(400).json({ error: 'Firma y nombre requeridos' });
+    }
+    if (!ersdAccepted) {
+      return res.status(400).json({ error: 'Debe aceptar la divulgación de firma electrónica (ERSD)' });
     }
     if (typeof signerName !== 'string' || signerName.length > 150)
       return res.status(400).json({ error: 'Nombre inválido' });
@@ -155,6 +158,13 @@ async function submitSignature(req, res, next) {
     const signedPath = path.join(SIGNED_DIR, signedFileName);
     await fs.writeFile(signedPath, signedPdfBuffer);
 
+    // Save raw signature image for the sumarium
+    const sigImagePath = path.join(SIGNED_DIR, `SIG-${sig.id}.png`);
+    const sigImageBuffer = Buffer.from(signatureDataUrl.replace(/^data:image\/png;base64,/, ''), 'base64');
+    await fs.writeFile(sigImagePath, sigImageBuffer);
+
+    const ersdAcceptanceId = uuidv4();
+
     // Atomic update: only succeeds if still not signed (prevents race condition)
     const [updateResult] = await db.query(
       `UPDATE signature_requests SET
@@ -165,9 +175,12 @@ async function submitSignature(req, res, next) {
         signer_user_agent = ?,
         signer_device = ?,
         signer_geolocation = ?,
-        signed_document_path = ?
+        signed_document_path = ?,
+        signature_image_path = ?,
+        ersd_accepted_at = ?,
+        ersd_acceptance_id = ?
        WHERE id = ? AND status IN ('pending', 'viewed')`,
-      [signedAt, signerName, ip, ua, device, geolocation ? JSON.stringify(geolocation) : null, signedPath, sig.id]
+      [signedAt, signerName, ip, ua, device, geolocation ? JSON.stringify(geolocation) : null, signedPath, sigImagePath, signedAt, ersdAcceptanceId, sig.id]
     );
 
     if (updateResult.affectedRows === 0) {

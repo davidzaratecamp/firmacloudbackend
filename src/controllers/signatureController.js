@@ -63,8 +63,23 @@ async function sendDocument(req, res, next) {
     if (sendChannel === 'email' || sendChannel === 'both') {
       await sendSignatureRequest(sendArgs);
     }
+
     if (sendChannel === 'whatsapp' || sendChannel === 'both') {
-      await sendSignatureWhatsApp(sendArgs);
+      try {
+        await sendSignatureWhatsApp(sendArgs);
+      } catch (waErr) {
+        if (sendChannel === 'whatsapp') {
+          // Canal único falló — limpiar registro para que el agente reintente por otro canal
+          await db.query('DELETE FROM activity_logs WHERE signature_request_id = ?', [id]);
+          await db.query('DELETE FROM signature_requests WHERE id = ?', [id]);
+          return res.status(503).json({
+            errorCode: 'WHATSAPP_UNAVAILABLE',
+            error: 'WhatsApp no está disponible en este momento. Por favor reenvía el documento por correo electrónico.',
+          });
+        }
+        // Canal 'both': el email ya se envió, solo registrar la falla de WA
+        console.error('[whatsapp] Fallo en canal both, email enviado:', waErr.message);
+      }
     }
 
     const channelLabel = { email: 'correo electrónico', whatsapp: 'WhatsApp', both: 'correo y WhatsApp' };
@@ -229,7 +244,7 @@ async function deleteSignature(req, res, next) {
     const filesToDelete = [
       sig.document_original_path,
       sig.signed_document_path,
-      sig.certificate_path,
+      sig.signature_image_path,
     ].filter(Boolean);
 
     await Promise.all(filesToDelete.map(f =>
