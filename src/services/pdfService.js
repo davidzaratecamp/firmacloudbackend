@@ -82,7 +82,7 @@ async function generateCertificate(sig, logs) {
 
     page.drawRectangle({ x: 0, y: H - 110, width: W, height: 110, color: rgb(0.12, 0.23, 0.37) });
     page.drawText('SUMARIUM DE FIRMA DIGITAL', { x: M, y: H - 42, size: 20, font: fontBold, color: rgb(1, 1, 1) });
-    page.drawText('Evidencia Legal de Firma Electrónica - FirmaCloud', { x: M, y: H - 64, size: 11, font, color: rgb(0.58, 0.76, 1) });
+    page.drawText('Evidencia Legal de Firma Electrónica - Asiste Health Care', { x: M, y: H - 64, size: 11, font, color: rgb(0.58, 0.76, 1) });
     // Company info — right side
     page.drawText('Asiste Health Care', { x: 360, y: H - 42, size: 11, font: fontBold, color: rgb(1, 1, 1) });
     page.drawText('EIN 93-3452400', { x: 360, y: H - 58, size: 9, font, color: rgb(0.85, 0.92, 1) });
@@ -179,7 +179,7 @@ async function generateCertificate(sig, logs) {
     }
 
     page.drawLine({ start: { x: M, y: 50 }, end: { x: W - M, y: 50 }, thickness: 0.5, color: rgb(0.8, 0.8, 0.8) });
-    page.drawText('Este documento es un registro legal generado automáticamente por FirmaCloud.', { x: M, y: 36, size: 8, font, color: rgb(0.5, 0.5, 0.5) });
+    page.drawText('Este documento es un registro legal generado automáticamente por Asiste Health Care.', { x: M, y: 36, size: 8, font, color: rgb(0.5, 0.5, 0.5) });
     page.drawText(`Generado el: ${fmtDate(new Date())}`, { x: M, y: 24, size: 8, font, color: rgb(0.5, 0.5, 0.5) });
   }
 
@@ -190,7 +190,7 @@ async function generateCertificate(sig, logs) {
 
     page.drawRectangle({ x: 0, y: H - 90, width: W, height: 90, color: rgb(0.12, 0.23, 0.37) });
     page.drawText('RESUMEN DE EVENTOS DEL DOCUMENTO', { x: M, y: H - 40, size: 16, font: fontBold, color: rgb(1, 1, 1) });
-    page.drawText('FirmaCloud · Asiste Health Care', { x: M, y: H - 64, size: 10, font, color: rgb(0.7, 0.85, 1) });
+    page.drawText('Asiste Health Care · Asiste Health Care', { x: M, y: H - 64, size: 10, font, color: rgb(0.7, 0.85, 1) });
     y = H - 115;
 
     // Tabla de eventos
@@ -255,7 +255,7 @@ async function generateCertificate(sig, logs) {
     }
 
     page.drawLine({ start: { x: M, y: 50 }, end: { x: W - M, y: 50 }, thickness: 0.5, color: rgb(0.8, 0.8, 0.8) });
-    page.drawText('Este documento es un registro legal generado automáticamente por FirmaCloud.', { x: M, y: 36, size: 8, font, color: rgb(0.5, 0.5, 0.5) });
+    page.drawText('Este documento es un registro legal generado automáticamente por Asiste Health Care.', { x: M, y: 36, size: 8, font, color: rgb(0.5, 0.5, 0.5) });
     page.drawText(`Generado el: ${fmtDate(new Date())}`, { x: M, y: 24, size: 8, font, color: rgb(0.5, 0.5, 0.5) });
   }
 
@@ -267,12 +267,12 @@ async function generateCertificate(sig, logs) {
     // Header ERSD
     page.drawRectangle({ x: 0, y: H - 90, width: W, height: 90, color: rgb(0.12, 0.23, 0.37) });
     page.drawText('ELECTRONIC RECORD AND SIGNATURE DISCLOSURE', { x: M, y: H - 38, size: 13, font: fontBold, color: rgb(1, 1, 1) });
-    page.drawText('FirmaCloud · Asiste Health Care', { x: M, y: H - 62, size: 10, font, color: rgb(0.7, 0.85, 1) });
+    page.drawText('Asiste Health Care · Asiste Health Care', { x: M, y: H - 62, size: 10, font, color: rgb(0.7, 0.85, 1) });
     y = H - 108;
 
     const addFooter = () => {
       page.drawLine({ start: { x: M, y: 44 }, end: { x: W - M, y: 44 }, thickness: 0.5, color: rgb(0.8, 0.8, 0.8) });
-      page.drawText('Electronic Record and Signature Disclosure · FirmaCloud · Asiste Health Care', { x: M, y: 30, size: 7, font, color: rgb(0.6, 0.6, 0.6) });
+      page.drawText('Electronic Record and Signature Disclosure · Asiste Health Care · Asiste Health Care', { x: M, y: 30, size: 7, font, color: rgb(0.6, 0.6, 0.6) });
     };
 
     const checkPage = (space = 30) => {
@@ -309,19 +309,19 @@ async function generateCertificate(sig, logs) {
     if (sig.signer_name) writeLine(`The parties agree: ${sig.signer_name}`, { fontSize: 8.5, color: rgb(0.4, 0.4, 0.4) });
     y -= 14;
 
-    writeParagraph('From time to time, Asiste Health Care (we, us or Company) may be required by law to provide to you certain written notices or disclosures. Described below are the terms and conditions for providing to you such notices and disclosures electronically through the FirmaCloud system. Please read the information below carefully and thoroughly, and if you can access this information electronically to your satisfaction and agree to this Electronic Record and Signature Disclosure (ERSD), please confirm your agreement by selecting the check-box next to "I agree to use electronic records and signatures" before signing your document.');
+    writeParagraph('From time to time, Asiste Health Care (we, us or Company) may be required by law to provide to you certain written notices or disclosures. Described below are the terms and conditions for providing to you such notices and disclosures electronically through the Asiste Health Care system. Please read the information below carefully and thoroughly, and if you can access this information electronically to your satisfaction and agree to this Electronic Record and Signature Disclosure (ERSD), please confirm your agreement by selecting the check-box next to "I agree to use electronic records and signatures" before signing your document.');
 
     writeHeading('Getting paper copies');
-    writeParagraph('At any time, you may request from us a paper copy of any record provided or made available electronically to you by us. You will have the ability to download and print documents we send to you through the FirmaCloud system during and immediately after the signing session. After the signing session, if you wish for us to send you paper copies of any such documents, please contact us using the information provided below.');
+    writeParagraph('At any time, you may request from us a paper copy of any record provided or made available electronically to you by us. You will have the ability to download and print documents we send to you through the Asiste Health Care system during and immediately after the signing session. After the signing session, if you wish for us to send you paper copies of any such documents, please contact us using the information provided below.');
 
     writeHeading('Withdrawing your consent');
     writeParagraph('If you decide to receive notices and disclosures from us electronically, you may at any time change your mind and tell us that thereafter you want to receive required notices and disclosures only in paper format. How you must inform us of your decision to receive future notices and disclosure in paper format and withdraw your consent to receive notices and disclosures electronically is described below.');
 
     writeHeading('Consequences of changing your mind');
-    writeParagraph('If you elect to receive required notices and disclosures only in paper format, it will slow the speed at which we can complete certain steps in transactions with you and delivering services to you because we will need first to send the required notices or disclosures to you in paper format, and then wait until we receive back from you your acknowledgment of your receipt of such paper notices or disclosures. Further, you will no longer be able to use the FirmaCloud system to receive required notices and consents electronically from us or to sign electronically documents from us.');
+    writeParagraph('If you elect to receive required notices and disclosures only in paper format, it will slow the speed at which we can complete certain steps in transactions with you and delivering services to you because we will need first to send the required notices or disclosures to you in paper format, and then wait until we receive back from you your acknowledgment of your receipt of such paper notices or disclosures. Further, you will no longer be able to use the Asiste Health Care system to receive required notices and consents electronically from us or to sign electronically documents from us.');
 
     writeHeading('All notices and disclosures will be sent to you electronically');
-    writeParagraph('Unless you tell us otherwise in accordance with the procedures described herein, we will provide electronically to you through the FirmaCloud system all required notices, disclosures, authorizations, acknowledgements, and other documents that are required to be provided or made available to you during the course of our relationship with you. To reduce the chance of you inadvertently not receiving any notice or disclosure, we prefer to provide all of the required notices and disclosures to you by the same method and to the same address that you have given us. Thus, you can receive all the disclosures and notices electronically or in paper format through the paper mail delivery system. If you do not agree with this process, please let us know as described below.');
+    writeParagraph('Unless you tell us otherwise in accordance with the procedures described herein, we will provide electronically to you through the Asiste Health Care system all required notices, disclosures, authorizations, acknowledgements, and other documents that are required to be provided or made available to you during the course of our relationship with you. To reduce the chance of you inadvertently not receiving any notice or disclosure, we prefer to provide all of the required notices and disclosures to you by the same method and to the same address that you have given us. Thus, you can receive all the disclosures and notices electronically or in paper format through the paper mail delivery system. If you do not agree with this process, please let us know as described below.');
 
     writeHeading('How to contact Asiste Health Care');
     writeParagraph('You may contact us to let us know of your changes as to how we may contact you electronically, to request paper copies of certain information from us, and to withdraw your prior consent to receive notices and disclosures electronically as follows:');

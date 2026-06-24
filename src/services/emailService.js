@@ -13,8 +13,8 @@ async function sendSignatureRequest({ clientName, clientEmail, token, documentNa
       <table width="600" cellpadding="0" cellspacing="0" style="background:#fff;border-radius:12px;overflow:hidden;box-shadow:0 2px 12px rgba(0,0,0,0.08);">
         <tr>
           <td style="background:linear-gradient(135deg,#1e3a5f,#2563eb);padding:36px 40px;text-align:center;">
-            <h1 style="color:#fff;margin:0;font-size:28px;font-weight:700;">FirmaCloud</h1>
-            <p style="color:#93c5fd;margin:6px 0 0;font-size:14px;">Asiste Health Care</p>
+            <h1 style="color:#fff;margin:0;font-size:28px;font-weight:700;">Asiste Health Care</h1>
+            <p style="color:#93c5fd;margin:6px 0 0;font-size:14px;">Firma Digital de Documentos</p>
           </td>
         </tr>
         <tr>
@@ -42,7 +42,7 @@ async function sendSignatureRequest({ clientName, clientEmail, token, documentNa
         <tr>
           <td style="background:#f9fafb;padding:20px 40px;text-align:center;border-top:1px solid #e5e7eb;">
             <p style="font-size:12px;color:#9ca3af;margin:0;">
-              Este correo fue enviado por FirmaCloud · Asiste Health Care<br>
+              Este correo fue enviado por Asiste Health Care<br>
               Si tiene dudas, contáctenos en soporte@asistehealth.com
             </p>
           </td>
