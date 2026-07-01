@@ -1,11 +1,12 @@
 require('dotenv').config();
 
 // Normalizes phone to Meta format: country code + number, no + sign (e.g. 573001234567)
+// Expects the number to already include its country code (frontend sends it via a country selector).
+// Kept lenient defaults for bare Colombian numbers (legacy callers without a country code).
 function normalizePhone(phone) {
   const digits = phone.replace(/\D/g, '');
-  if (digits.startsWith('57') && digits.length === 12) return digits;
+  if (digits.startsWith('00')) return digits.slice(2);
   if (digits.startsWith('3') && digits.length === 10) return `57${digits}`;
-  if (digits.startsWith('0057')) return digits.slice(4);
   return digits;
 }
 
