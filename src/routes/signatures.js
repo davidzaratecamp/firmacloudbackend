@@ -7,15 +7,15 @@ const { sendDocument, listSignatures, getSignature, downloadSignedDocument, down
 // POST /send accepts both JWT (panel agents) and X-Api-Key (intranet integration)
 router.post('/send', apiKeyOrAuth, sendDocument);
 
-// Download and certificate accept both JWT and API key (intranet integration)
+// Download, certificate and detail accept both JWT and API key (intranet integration)
 router.get('/:id/download', apiKeyOrAuth, downloadSignedDocument);
 router.get('/:id/certificate', apiKeyOrAuth, downloadCertificate);
+router.get('/:id', apiKeyOrAuth, getSignature);
 
 // All other endpoints require JWT
 router.use(auth);
 router.get('/dashboard', getDashboardStats);
 router.get('/', listSignatures);
-router.get('/:id', getSignature);
 router.delete('/:id', deleteSignature);
 
 module.exports = router;

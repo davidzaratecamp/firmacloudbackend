@@ -125,8 +125,9 @@ async function listSignatures(req, res, next) {
 async function getSignature(req, res, next) {
   try {
     const { id } = req.params;
-    const ownerFilter = req.user.role !== 'admin' ? 'AND sr.agent_id = ?' : '';
-    const params = req.user.role !== 'admin' ? [id, req.user.id] : [id];
+    const isApiKey = req.user.isApiKey;
+    const ownerFilter = (req.user.role !== 'admin' && !isApiKey) ? 'AND sr.agent_id = ?' : '';
+    const params = (req.user.role !== 'admin' && !isApiKey) ? [id, req.user.id] : [id];
     const [rows] = await db.query(
       `SELECT sr.*, a.name AS agent_name
        FROM signature_requests sr
