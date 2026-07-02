@@ -147,7 +147,8 @@ async function submitSignature(req, res, next) {
     const signerInfo = {
       id: sig.id,
       signerName,
-      signedAt: signedAt.toISOString().replace('T', ' ').slice(0, 19) + ' UTC',
+      clientEmail: sig.client_email || '',
+      signedAt,
       ipAddress: ip,
     };
 

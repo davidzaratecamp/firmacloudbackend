@@ -30,11 +30,18 @@ async function stampSignature(originalPdfPath, signatureDataUrl, signerInfo) {
   const signatureImage = await pdfDoc.embedPng(signatureImageBytes);
 
   const pages = pdfDoc.getPages();
-  const page = pages[0];
 
   const font = await pdfDoc.embedFont(StandardFonts.Helvetica);
   const fontBold = await pdfDoc.embedFont(StandardFonts.HelveticaBold);
 
+  // Formatear fecha como M-D-YYYY HH:mm:s (igual que el PDF de referencia)
+  const d = signerInfo.signedAt instanceof Date ? signerInfo.signedAt : new Date(signerInfo.signedAt);
+  const headerDate = `${d.getUTCMonth() + 1}-${d.getUTCDate()}-${d.getUTCFullYear()} ${d.getUTCHours()}:${String(d.getUTCMinutes()).padStart(2,'0')}:${d.getUTCSeconds()}`;
+  const headerText = `${signerInfo.clientEmail}  ${headerDate}`.trim();
+  const footerText = `Utilizando dirección IP: ${signerInfo.ipAddress}`;
+
+  // Estampar la firma solo en página 1
+  const page = pages[0];
   const sigDims = signatureImage.scaleToFit(SIGN_FIELD.width, SIGN_FIELD.height);
   page.drawImage(signatureImage, {
     x: SIGN_FIELD.x + (SIGN_FIELD.width - sigDims.width) / 2,
@@ -44,21 +51,38 @@ async function stampSignature(originalPdfPath, signatureDataUrl, signerInfo) {
     opacity: 0.92,
   });
 
-  const stampY = 20;
-  const stampX = 40;
-  page.drawRectangle({
-    x: stampX, y: stampY,
-    width: page.getWidth() - 80, height: 36,
-    color: rgb(0.95, 0.97, 1),
-    borderColor: rgb(0.7, 0.8, 0.95),
-    borderWidth: 0.5,
-  });
-  page.drawText(`Firmado por: ${signerInfo.signerName}  |  ${signerInfo.signedAt}  |  IP: ${signerInfo.ipAddress}`, {
-    x: stampX + 6, y: stampY + 20, size: 6.5, font: fontBold, color: rgb(0.2, 0.2, 0.5),
-  });
-  page.drawText(`ID Firma: ${signerInfo.id}`, {
-    x: stampX + 6, y: stampY + 9, size: 6, font, color: rgb(0.4, 0.4, 0.6),
-  });
+  // Encabezado (email + fecha) y pie (IP) en TODAS las páginas
+  for (const p of pages) {
+    const pw = p.getWidth();
+    const ph = p.getHeight();
+    const gray = rgb(0.3, 0.3, 0.3);
+
+    // Encabezado: email + fecha en la parte superior
+    p.drawText(headerText, {
+      x: 40, y: ph - 14,
+      size: 7.5, font, color: gray,
+    });
+
+    // Separador horizontal bajo el encabezado
+    p.drawLine({
+      start: { x: 40, y: ph - 18 },
+      end:   { x: pw - 40, y: ph - 18 },
+      thickness: 0.4,
+      color: rgb(0.7, 0.7, 0.7),
+    });
+
+    // Pie: IP en la parte inferior
+    p.drawLine({
+      start: { x: 40, y: 22 },
+      end:   { x: pw - 40, y: 22 },
+      thickness: 0.4,
+      color: rgb(0.7, 0.7, 0.7),
+    });
+    p.drawText(footerText, {
+      x: 40, y: 10,
+      size: 7.5, font, color: gray,
+    });
+  }
 
   return await pdfDoc.save();
 }
