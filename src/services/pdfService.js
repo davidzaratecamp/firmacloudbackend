@@ -2,7 +2,17 @@ const { PDFDocument, rgb, StandardFonts } = require('pdf-lib');
 const fs = require('fs').promises;
 const path = require('path');
 
-const SIGN_FIELD = { x: 150, y: 495, width: 112, height: 32 };
+const TEMPLATES_DIR = path.resolve(process.env.DOCUMENT_TEMPLATES_DIR || path.join(__dirname, '../../document-templates'));
+
+function resolveSignField(override) {
+  if (override) return override;
+  return {
+    x:      parseFloat(process.env.SIGN_FIELD_X) || 150,
+    y:      parseFloat(process.env.SIGN_FIELD_Y) || 495,
+    width:  parseFloat(process.env.SIGN_FIELD_W) || 112,
+    height: parseFloat(process.env.SIGN_FIELD_H) || 32,
+  };
+}
 
 function wrapText(text, maxWidth, font, fontSize) {
   const words = text.split(' ');
@@ -21,7 +31,9 @@ function wrapText(text, maxWidth, font, fontSize) {
   return lines;
 }
 
-async function stampSignature(originalPdfPath, signatureDataUrl, signerInfo) {
+async function stampSignature(originalPdfPath, signatureDataUrl, signerInfo, signFieldOverride = null, signPageIndex = 0, extraSignLocations = []) {
+  const SIGN_FIELD = resolveSignField(signFieldOverride);
+
   const pdfBytes = await fs.readFile(originalPdfPath);
   const pdfDoc = await PDFDocument.load(pdfBytes);
 
@@ -34,14 +46,21 @@ async function stampSignature(originalPdfPath, signatureDataUrl, signerInfo) {
   const font = await pdfDoc.embedFont(StandardFonts.Helvetica);
   const fontBold = await pdfDoc.embedFont(StandardFonts.HelveticaBold);
 
-  // Formatear fecha como M-D-YYYY HH:mm:s (igual que el PDF de referencia)
   const d = signerInfo.signedAt instanceof Date ? signerInfo.signedAt : new Date(signerInfo.signedAt);
-  const headerDate = `${d.getUTCMonth() + 1}-${d.getUTCDate()}-${d.getUTCFullYear()} ${d.getUTCHours()}:${String(d.getUTCMinutes()).padStart(2,'0')}:${d.getUTCSeconds()}`;
+  const pad = n => String(n).padStart(2, '0');
+  const shortDate = `${pad(d.getUTCMonth() + 1)}/${pad(d.getUTCDate())}/${d.getUTCFullYear()}`;
+  const shortTime = `${pad(d.getUTCHours())}:${pad(d.getUTCMinutes())}:${pad(d.getUTCSeconds())}`;
+  const headerDate = `${shortDate} ${shortTime} UTC`;
   const headerText = `${signerInfo.clientEmail}  ${headerDate}`.trim();
-  const footerText = `Utilizando dirección IP: ${signerInfo.ipAddress}`;
+  const footerText = [
+    signerInfo.signerName ? `Cliente: ${signerInfo.signerName}` : null,
+    `IP: ${signerInfo.ipAddress || 'N/A'}`,
+    `${shortDate} ${shortTime} UTC`,
+    `ID: ${signerInfo.id}`,
+  ].filter(Boolean).join('  |  ');
 
-  // Estampar la firma solo en página 1
-  const page = pages[0];
+  // Estampar la firma en la página indicada (default = página 1)
+  const page = pages[signPageIndex] || pages[0];
   const sigDims = signatureImage.scaleToFit(SIGN_FIELD.width, SIGN_FIELD.height);
   page.drawImage(signatureImage, {
     x: SIGN_FIELD.x + (SIGN_FIELD.width - sigDims.width) / 2,
@@ -51,8 +70,26 @@ async function stampSignature(originalPdfPath, signatureDataUrl, signerInfo) {
     opacity: 0.92,
   });
 
-  // Encabezado (email + fecha) y pie (IP) en TODAS las páginas
-  for (const p of pages) {
+  // Firmas adicionales (ej: página 2 en contrato-activacion)
+  for (const loc of extraSignLocations) {
+    const extraPage = pages[loc.page];
+    if (!extraPage) continue;
+    const extraDims = signatureImage.scaleToFit(loc.width, loc.height);
+    extraPage.drawImage(signatureImage, {
+      x: loc.x + (loc.width - extraDims.width) / 2,
+      y: loc.y + (loc.height - extraDims.height) / 2,
+      width: extraDims.width,
+      height: extraDims.height,
+      opacity: 0.92,
+    });
+  }
+
+  // Encabezado y pie en todas las páginas;
+  // en flujo contrato-activacion (signPageIndex > 0) se omite página 3 (index 2)
+  // porque esa página ya tiene el campo "IP: Utilizando dirección IP:" pre-impreso.
+  for (let pi = 0; pi < pages.length; pi++) {
+    if (pi === 2 && signPageIndex > 0) continue;
+    const p = pages[pi];
     const pw = p.getWidth();
     const ph = p.getHeight();
     const gray = rgb(0.3, 0.3, 0.3);
@@ -71,16 +108,29 @@ async function stampSignature(originalPdfPath, signatureDataUrl, signerInfo) {
       color: rgb(0.7, 0.7, 0.7),
     });
 
-    // Pie: IP en la parte inferior
+    // Pie: nombre firmante + IP + fecha en la parte inferior
     p.drawLine({
-      start: { x: 40, y: 22 },
-      end:   { x: pw - 40, y: 22 },
+      start: { x: 40, y: 52 },
+      end:   { x: pw - 40, y: 52 },
       thickness: 0.4,
       color: rgb(0.7, 0.7, 0.7),
     });
     p.drawText(footerText, {
-      x: 40, y: 10,
-      size: 7.5, font, color: gray,
+      x: 40, y: 40,
+      size: 8, font, color: gray,
+    });
+  }
+
+  // IP del cliente en la etiqueta pre-impresa de página 3 (solo flujo contrato-activacion)
+  if (signPageIndex > 0 && pages[2]) {
+    const ipLabel = 'IP: Utilizando dirección IP: ';
+    const labelW  = fontBold.widthOfTextAtSize(ipLabel, 9);
+    pages[2].drawText(signerInfo.ipAddress || 'N/A', {
+      x: 25.5 + labelW + 30,
+      y: 202.4,
+      size: 9,
+      font,
+      color: rgb(0, 0, 0),
     });
   }
 
@@ -393,4 +443,114 @@ async function mergePDFs(pdf1Buffer, pdf2Buffer) {
   return await merged.save();
 }
 
-module.exports = { stampSignature, generateCertificate, mergePDFs };
+// Resuelve un valor anidado usando notación de punto ("page2.clientName")
+function getNestedValue(obj, dotPath) {
+  return dotPath.split('.').reduce((cur, key) => (cur != null ? cur[key] : undefined), obj);
+}
+
+// Llena la plantilla contrato_activacion.pdf con los datos recibidos desde la intranet.
+// Devuelve el PDF modificado como Buffer.
+async function fillContratoActivacion(documentData) {
+  const configPath = path.join(__dirname, '../config/templates/contrato_activacion.json');
+  const config = JSON.parse(await fs.readFile(configPath, 'utf-8'));
+
+  const templatePath = path.join(TEMPLATES_DIR, config.templateFile);
+  const templateBytes = await fs.readFile(templatePath);
+  const pdfDoc = await PDFDocument.load(templateBytes);
+
+  const font     = await pdfDoc.embedFont(StandardFonts.Helvetica);
+  const fontBold = await pdfDoc.embedFont(StandardFonts.HelveticaBold);
+  const pages    = pdfDoc.getPages();
+
+  // Valor computado: saludo con nombre completo
+  const computed = {
+    greeting: [documentData.page3?.clientFirstName, documentData.page3?.clientLastName]
+      .filter(Boolean).join(' ')
+      ? `Hola ${[documentData.page3?.clientFirstName, documentData.page3?.clientLastName].filter(Boolean).join(' ')}`
+      : '',
+  };
+
+  const dataWithComputed = { ...documentData, _computed: computed };
+
+  for (const field of config.textFields) {
+    const rawValue = getNestedValue(dataWithComputed, field.dataPath);
+    const value = rawValue != null ? String(rawValue).trim() : '';
+    if (!value) continue;
+
+    const pageObj = pages[field.page];
+    if (!pageObj) continue;
+
+    const fontSize = field.fontSize || 9.5;
+
+    if (field.label) {
+      // Draw bold label then normal value inline (CartaPlantillaAfiliados style)
+      pageObj.drawText(field.label, {
+        x: field.x, y: field.y,
+        size: fontSize, font: fontBold, color: rgb(0, 0, 0),
+      });
+      const labelWidth = fontBold.widthOfTextAtSize(field.label, fontSize);
+      pageObj.drawText(value, {
+        x: field.x + labelWidth, y: field.y,
+        size: fontSize, font, color: rgb(0, 0, 0),
+      });
+    } else {
+      pageObj.drawText(value, {
+        x: field.x, y: field.y,
+        size: fontSize,
+        font: field.bold ? fontBold : font,
+        color: rgb(0, 0, 0),
+      });
+    }
+  }
+
+  // ── Beneficiarios (columna derecha, página 3) ─────────────────────────────
+  const beneficiarios = documentData.page3?.beneficiaries;
+  if (Array.isArray(beneficiarios) && beneficiarios.length > 0) {
+    const page3   = pages[2];
+    const FONT_SIZE = 9;
+    const X_BENE    = 280;   // columna derecha
+    const Y_START   = 680;   // misma altura que "Nombres:" en columna izquierda
+    const LINE_GAP  = 21;    // espaciado entre líneas
+    const BENE_GAP  = 10;    // espacio extra entre beneficiarios
+
+    let y = Y_START;
+
+    for (let i = 0; i < beneficiarios.length; i++) {
+      const b = beneficiarios[i];
+      const nombre = [b.firstName, b.lastName].filter(Boolean).join(' ');
+
+      if (nombre) {
+        const labelBene = `Beneficiario ${i + 1}: `;
+        const labelW    = fontBold.widthOfTextAtSize(labelBene, FONT_SIZE);
+        page3.drawText(labelBene, { x: X_BENE, y, size: FONT_SIZE, font: fontBold, color: rgb(0, 0, 0) });
+        page3.drawText(nombre,    { x: X_BENE + labelW, y, size: FONT_SIZE, font, color: rgb(0, 0, 0) });
+        y -= LINE_GAP;
+      }
+
+      if (b.migratoryStatus) {
+        const labelMig = 'Estatus migratorio: ';
+        const labelW   = fontBold.widthOfTextAtSize(labelMig, FONT_SIZE);
+        page3.drawText(labelMig,           { x: X_BENE, y, size: FONT_SIZE, font: fontBold, color: rgb(0, 0, 0) });
+        page3.drawText(b.migratoryStatus,  { x: X_BENE + labelW, y, size: FONT_SIZE, font, color: rgb(0, 0, 0) });
+        y -= LINE_GAP;
+      }
+
+      y -= BENE_GAP;
+    }
+  }
+
+  return Buffer.from(await pdfDoc.save());
+}
+
+// Devuelve la configuración del campo de firma para contrato_activacion (signPage + signField).
+async function getContratoSignConfig() {
+  const configPath = path.join(__dirname, '../config/templates/contrato_activacion.json');
+  const config = JSON.parse(await fs.readFile(configPath, 'utf-8'));
+  return {
+    signPageIndex: config.signPage || 3,
+    signField: config.signField,
+    extraSignLocations: config.extraSignLocations || [],
+  };
+}
+
+module.exports = { stampSignature, generateCertificate, mergePDFs, fillContratoActivacion, getContratoSignConfig };

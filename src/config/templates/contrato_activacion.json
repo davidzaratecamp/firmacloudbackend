@@ -1,0 +1,53 @@
+{
+  "_note": "Template: combinado 2.pdf (4 pags). Pag2 idx1 612x792: coordenadas CartaEspanol.jsx. Pag3 idx2 510x907: auto-calibrado con pdfjs-dist.",
+  "templateFile": "combinado 2.pdf",
+  "signPage": 3,
+  "signField": {
+    "x": 120, "y": 485, "width": 180, "height": 38,
+    "_note": "Firma Cliente en pagina 4 (index 3) — label y=502.4"
+  },
+  "extraSignLocations": [
+    {
+      "page": 1, "x": 255, "y": 136, "width": 200, "height": 38,
+      "_note": "Firma en pagina 2 (index 1) — label y=152.9"
+    }
+  ],
+  "textFields": [
+    { "id": "clientNameConsent",  "dataPath": "page2.clientName",        "page": 1, "x": 105, "y": 673, "fontSize": 10 },
+    { "id": "agentNameConsent",   "dataPath": "page2.agentName",         "page": 1, "x": 90,  "y": 661, "fontSize": 10 },
+    { "id": "consentExpiryDate",  "dataPath": "page2.consentExpiryDate", "page": 1, "x": 90,  "y": 377, "fontSize": 10 },
+    { "id": "agentNameLabel",     "dataPath": "page2.agentName",         "page": 1, "x": 294, "y": 357, "fontSize": 10 },
+    { "id": "agentNPN",           "dataPath": "page2.agentNPN",          "page": 1, "x": 294, "y": 345, "fontSize": 10 },
+    { "id": "agentPhone",         "dataPath": "page2.agentPhone",        "page": 1, "x": 294, "y": 334, "fontSize": 10 },
+    { "id": "agentEmail",         "dataPath": "page2.agentEmail",        "page": 1, "x": 294, "y": 323, "fontSize": 10 },
+    { "id": "clientContactName",  "dataPath": "page2.clientName",        "page": 1, "x": 294, "y": 218, "fontSize": 10 },
+    { "id": "clientPhone",        "dataPath": "page2.clientPhone",       "page": 1, "x": 294, "y": 206, "fontSize": 10 },
+    { "id": "clientEmail",        "dataPath": "page2.clientEmail",       "page": 1, "x": 294, "y": 197, "fontSize": 10 },
+    { "id": "page2Date",          "dataPath": "page2.date",              "page": 1, "x": 294, "y": 185, "fontSize": 10 },
+
+    { "id": "greeting",        "dataPath": "_computed.greeting",      "page": 2, "x": 28,  "y": 737, "fontSize": 17, "bold": true },
+
+    { "id": "clientFirstName", "dataPath": "page3.clientFirstName",  "page": 2, "x": 80,  "y": 680, "fontSize": 9 },
+    { "id": "clientLastName",  "dataPath": "page3.clientLastName",   "page": 2, "x": 81,  "y": 659, "fontSize": 9 },
+    { "id": "socialType",      "dataPath": "page3.socialType",       "page": 2, "x": 62,  "y": 638, "fontSize": 9 },
+    { "id": "socialLastFour",  "dataPath": "page3.socialLastFour",   "page": 2, "x": 113, "y": 617, "fontSize": 9 },
+    { "id": "migratoryStatus", "dataPath": "page3.migratoryStatus",  "page": 2, "x": 130, "y": 595, "fontSize": 9 },
+    { "id": "state",           "dataPath": "page3.state",            "page": 2, "x": 66,  "y": 574, "fontSize": 9 },
+    { "id": "address",         "dataPath": "page3.address",          "page": 2, "x": 82,  "y": 553, "fontSize": 9 },
+    { "id": "housingType",     "dataPath": "page3.housingType",      "page": 2, "x": 121, "y": 532, "fontSize": 9 },
+    { "id": "zipCode",         "dataPath": "page3.zipCode",          "page": 2, "x": 106, "y": 511, "fontSize": 9 },
+    { "id": "primaryPhone",    "dataPath": "page3.primaryPhone",     "page": 2, "x": 172, "y": 490, "fontSize": 9 },
+    { "id": "additionalPhone", "dataPath": "page3.additionalPhone",  "page": 2, "x": 126, "y": 468, "fontSize": 9 },
+    { "id": "incomeType",      "dataPath": "page3.incomeType",       "page": 2, "x": 118, "y": 447, "fontSize": 9 },
+    { "id": "totalIncome",     "dataPath": "page3.totalIncome",      "page": 2, "x": 116, "y": 426, "fontSize": 9 },
+    { "id": "insurerName",     "dataPath": "page3.insurerName",      "page": 2, "x": 146, "y": 405, "fontSize": 9 },
+    { "id": "planCategory",    "dataPath": "page3.planCategory",     "page": 2, "x": 158, "y": 384, "fontSize": 9 },
+    { "id": "planName",        "dataPath": "page3.planName",         "page": 2, "x": 119, "y": 363, "fontSize": 9 },
+    { "id": "premium",         "dataPath": "page3.premium",          "page": 2, "x": 61,  "y": 329, "fontSize": 9 },
+    { "id": "quotationValue",  "dataPath": "page3.quotationValue",   "page": 2, "x": 119, "y": 308, "fontSize": 9 },
+    { "id": "deductible",      "dataPath": "page3.deductible",       "page": 2, "x": 89,  "y": 287, "fontSize": 9 },
+    { "id": "maxOutOfPocket",  "dataPath": "page3.maxOutOfPocket",   "page": 2, "x": 152, "y": 266, "fontSize": 9 },
+    { "id": "activationDate",  "dataPath": "page3.activationDate",   "page": 2, "x": 123, "y": 245, "fontSize": 9 },
+    { "id": "securityWord",    "dataPath": "page3.securityWord",     "page": 2, "x": 146, "y": 224, "fontSize": 9 }
+  ]
+}

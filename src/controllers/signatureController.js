@@ -3,10 +3,10 @@ const path = require('path');
 const fs = require('fs').promises;
 const db = require('../config/database');
 const { generateSecureToken, getTokenExpiry } = require('../utils/token');
-const { hashFile } = require('../utils/hash');
+const { hashFile, hashBuffer } = require('../utils/hash');
 const { sendSignatureRequest } = require('../services/emailService');
 const { sendSignatureWhatsApp } = require('../services/whatsappService');
-const { generateCertificate } = require('../services/pdfService');
+const { generateCertificate, fillContratoActivacion, getContratoSignConfig } = require('../services/pdfService');
 const { triggerWebhook } = require('../services/webhookService');
 const { getServerLocation } = require('../utils/serverLocation');
 
@@ -94,7 +94,8 @@ async function listSignatures(req, res, next) {
     const { status, search, page = 1, limit = 20 } = req.query;
     const offset = (page - 1) * limit;
 
-    let where = req.user.role === 'admin' ? '1=1' : 'sr.agent_id = ?';
+    // npn_name IS NULL excluye las cartas NPN del flujo de firma original
+    let where = req.user.role === 'admin' ? 'sr.npn_name IS NULL' : 'sr.agent_id = ? AND sr.npn_name IS NULL';
     const params = req.user.role === 'admin' ? [] : [req.user.id];
 
     if (status) { where += ' AND sr.status = ?'; params.push(status); }
@@ -207,6 +208,9 @@ async function downloadCertificate(req, res, next) {
 
 async function getDashboardStats(req, res, next) {
   try {
+    const isAdmin    = req.user.role === 'admin';
+    const agentParams = isAdmin ? [] : [req.user.id];
+
     const [stats] = await db.query(`
       SELECT
         COUNT(*) AS total,
@@ -215,15 +219,15 @@ async function getDashboardStats(req, res, next) {
         SUM(status = 'signed') AS signed,
         SUM(status = 'expired') AS expired
       FROM signature_requests
-      ${req.user.role !== 'admin' ? 'WHERE agent_id = ?' : ''}
-    `, req.user.role !== 'admin' ? [req.user.id] : []);
+      WHERE npn_name IS NULL ${isAdmin ? '' : 'AND agent_id = ?'}
+    `, agentParams);
 
     const [recent] = await db.query(`
       SELECT sr.id, sr.document_name, sr.client_name, sr.status, sr.sent_at
       FROM signature_requests sr
-      ${req.user.role !== 'admin' ? 'WHERE sr.agent_id = ?' : ''}
+      WHERE sr.npn_name IS NULL ${isAdmin ? '' : 'AND sr.agent_id = ?'}
       ORDER BY sr.created_at DESC LIMIT 5
-    `, req.user.role !== 'admin' ? [req.user.id] : []);
+    `, agentParams);
 
     res.json({ stats: stats[0], recent });
   } catch (err) {
@@ -262,4 +266,103 @@ async function deleteSignature(req, res, next) {
   }
 }
 
-module.exports = { sendDocument, listSignatures, getSignature, downloadSignedDocument, downloadCertificate, getDashboardStats, deleteSignature };
+async function sendDocumentWithData(req, res, next) {
+  try {
+    const {
+      clientName, clientEmail, clientPhone,
+      sendChannel = 'email',
+      webhookUrl, agentName, agentCedula,
+      ventaId,
+      documentData,
+    } = req.body;
+
+    // Validaciones básicas
+    if (!clientName) return res.status(400).json({ error: 'Nombre del cliente requerido' });
+    if ((sendChannel === 'email' || sendChannel === 'both') && !clientEmail)
+      return res.status(400).json({ error: 'Email requerido para envío por correo' });
+    if ((sendChannel === 'whatsapp' || sendChannel === 'both') && !clientPhone)
+      return res.status(400).json({ error: 'Teléfono requerido para envío por WhatsApp' });
+    if (!documentData || (!documentData.page2 && !documentData.page3))
+      return res.status(400).json({ error: 'documentData con page2 y/o page3 es requerido' });
+    if (req.user.isApiKey) {
+      if (!agentName)   return res.status(400).json({ error: 'Nombre del agente requerido' });
+      if (!agentCedula) return res.status(400).json({ error: 'Cédula del agente requerida' });
+    }
+
+    // Completar fecha en page2 si no viene
+    if (documentData.page2 && !documentData.page2.date) {
+      const now = new Date();
+      const pad = n => String(n).padStart(2, '0');
+      documentData.page2.date = `${pad(now.getMonth() + 1)}-${pad(now.getDate())}-${now.getFullYear()}`;
+    }
+
+    // Llenar plantilla con los datos
+    const filledPdfBuffer = await fillContratoActivacion(documentData);
+
+    const contratoConfig = await getContratoSignConfig();
+
+    const docName = 'contrato-activacion.pdf';
+    const id = uuidv4();
+    const uploadPath = path.join(UPLOADS_DIR, `${id}-${docName}`);
+    await fs.writeFile(uploadPath, filledPdfBuffer);
+
+    const docHash = hashBuffer(filledPdfBuffer);
+
+    const token = generateSecureToken();
+    const tokenExpiry = getTokenExpiry(parseInt(process.env.TOKEN_EXPIRES_HOURS) || 72);
+    const serverLoc = getServerLocation();
+
+    await db.query(
+      `INSERT INTO signature_requests
+       (id, agent_id, document_name, document_original_path, document_hash,
+        client_name, client_email, client_phone, send_channel, token, token_expires_at,
+        agent_name_sent, agent_cedula, sent_from_ip, sent_from_location, webhook_url,
+        document_data, sign_page_index)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      [
+        id, req.user.id, docName, uploadPath, docHash,
+        clientName, clientEmail || null, clientPhone || null, sendChannel, token, tokenExpiry,
+        agentName || null, agentCedula || null,
+        serverLoc?.ip || null, serverLoc?.location || null,
+        webhookUrl || null,
+        JSON.stringify({ ...documentData, _ventaId: ventaId || null }),
+        contratoConfig.signPageIndex,
+      ]
+    );
+
+    await db.query(
+      'INSERT INTO activity_logs (signature_request_id, event_type, details) VALUES (?, ?, ?)',
+      [id, 'DOCUMENT_SENT', JSON.stringify({ channel: sendChannel, email: clientEmail, phone: clientPhone, ventaId: ventaId || null })]
+    );
+
+    const sendArgs = { clientName, clientEmail, clientPhone, token, documentName: docName, agentName: req.user.name || agentName };
+
+    if (sendChannel === 'email' || sendChannel === 'both') {
+      await sendSignatureRequest(sendArgs);
+    }
+
+    if (sendChannel === 'whatsapp' || sendChannel === 'both') {
+      try {
+        await sendSignatureWhatsApp(sendArgs);
+      } catch (waErr) {
+        if (sendChannel === 'whatsapp') {
+          await fs.unlink(uploadPath).catch(() => {});
+          await db.query('DELETE FROM activity_logs WHERE signature_request_id = ?', [id]);
+          await db.query('DELETE FROM signature_requests WHERE id = ?', [id]);
+          return res.status(503).json({
+            errorCode: 'WHATSAPP_UNAVAILABLE',
+            error: 'WhatsApp no está disponible en este momento. Por favor reenvía el documento por correo electrónico.',
+          });
+        }
+        console.error('[whatsapp] Fallo en canal both, email enviado:', waErr.message);
+      }
+    }
+
+    const channelLabel = { email: 'correo electrónico', whatsapp: 'WhatsApp', both: 'correo y WhatsApp' };
+    res.status(201).json({ id, status: 'pending', message: `Documento enviado por ${channelLabel[sendChannel]}` });
+  } catch (err) {
+    next(err);
+  }
+}
+
+module.exports = { sendDocument, sendDocumentWithData, listSignatures, getSignature, downloadSignedDocument, downloadCertificate, getDashboardStats, deleteSignature };
