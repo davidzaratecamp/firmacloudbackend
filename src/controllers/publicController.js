@@ -2,7 +2,7 @@ const path = require('path');
 const fs = require('fs').promises;
 const { v4: uuidv4 } = require('uuid');
 const db = require('../config/database');
-const { stampSignature } = require('../services/pdfService');
+const { stampSignature, getContratoSignConfig } = require('../services/pdfService');
 const { hashBuffer } = require('../utils/hash');
 const { triggerWebhook } = require('../services/webhookService');
 
@@ -19,7 +19,20 @@ function buildWebhookBase(sig) {
 const SIGNED_DIR = path.resolve(process.env.SIGNED_DIR || path.join(__dirname, '../../signed'));
 
 function getClientIP(req) {
-  return req.headers['x-forwarded-for']?.split(',')[0]?.trim() || req.socket.remoteAddress || 'unknown';
+  const raw = req.headers['x-forwarded-for']?.split(',')[0]?.trim()
+    || req.socket.remoteAddress
+    || 'unknown';
+  // Normalizar IPv6 loopback y IPv4-mapped IPv6 a formato IPv4 legible
+  if (raw === '::1') return '127.0.0.1';
+  const v4mapped = raw.match(/^::ffff:(\d+\.\d+\.\d+\.\d+)$/);
+  if (v4mapped) return v4mapped[1];
+  return raw;
+}
+
+// WhatsApp URL parser appends trailing text (e.g. " Gracias.") to links; extract only the leading hex token.
+function cleanToken(raw) {
+  const m = (raw || '').match(/^[a-f0-9]+/i);
+  return m ? m[0] : '';
 }
 
 function detectDevice(ua) {
@@ -31,16 +44,16 @@ function detectDevice(ua) {
 
 async function getSigningPage(req, res, next) {
   try {
-    const { token } = req.params;
+    const token = cleanToken(req.params.token);
     const [rows] = await db.query(
-      'SELECT id, document_name, client_name, client_email, client_phone, status, token_expires_at, webhook_url FROM signature_requests WHERE token = ?',
+      'SELECT id, document_name, client_name, client_email, client_phone, status, token_expires_at, webhook_url, npn_name FROM signature_requests WHERE token = ?',
       [token]
     );
 
     if (!rows.length) return res.status(404).json({ error: 'Enlace no válido' });
 
     const sig = rows[0];
-    if (new Date() > new Date(sig.token_expires_at)) {
+    if (!sig.npn_name && new Date() > new Date(sig.token_expires_at)) {
       await db.query("UPDATE signature_requests SET status = 'expired' WHERE id = ?", [sig.id]);
       if (sig.webhook_url) triggerWebhook(sig.webhook_url, { ...buildWebhookBase(sig), event: 'document.expired', expiredAt: new Date().toISOString() });
       return res.status(410).json({ error: 'Este enlace ha expirado' });
@@ -56,7 +69,7 @@ async function getSigningPage(req, res, next) {
 
 async function recordView(req, res, next) {
   try {
-    const { token } = req.params;
+    const token = cleanToken(req.params.token);
     const [rows] = await db.query('SELECT * FROM signature_requests WHERE token = ?', [token]);
     if (!rows.length) return res.status(404).json({ error: 'No encontrado' });
 
@@ -82,7 +95,7 @@ async function recordView(req, res, next) {
 
 async function getDocumentForSigning(req, res, next) {
   try {
-    const { token } = req.params;
+    const token = cleanToken(req.params.token);
     const [rows] = await db.query('SELECT * FROM signature_requests WHERE token = ?', [token]);
     if (!rows.length) return res.status(404).json({ error: 'No encontrado' });
 
@@ -96,9 +109,8 @@ async function getDocumentForSigning(req, res, next) {
       ? sig.document_original_path
       : path.join(__dirname, '../../', sig.document_original_path);
 
-    // Allow PDF to be embedded in iframe from the frontend origin
+    // Allow PDF to be embedded/fetched from any allowed origin (CORS middleware handles the header)
     res.setHeader('X-Frame-Options', 'ALLOWALL');
-    res.setHeader('Access-Control-Allow-Origin', process.env.APP_URL || '*');
     res.setHeader('Content-Type', 'application/pdf');
 
     res.sendFile(filePath, (err) => {
@@ -111,7 +123,7 @@ async function getDocumentForSigning(req, res, next) {
 
 async function submitSignature(req, res, next) {
   try {
-    const { token } = req.params;
+    const token = cleanToken(req.params.token);
     const { signatureDataUrl, signerName, geolocation, ersdAccepted } = req.body;
 
     if (!signatureDataUrl || !signerName) {
@@ -133,7 +145,7 @@ async function submitSignature(req, res, next) {
     const sig = rows[0];
     if (sig.status === 'signed') return res.status(409).json({ error: 'Ya firmado' });
     if (sig.status === 'expired') return res.status(410).json({ error: 'Expirado' });
-    if (new Date() > new Date(sig.token_expires_at)) {
+    if (!sig.npn_name && new Date() > new Date(sig.token_expires_at)) {
       await db.query("UPDATE signature_requests SET status = 'expired' WHERE id = ?", [sig.id]);
       if (sig.webhook_url) triggerWebhook(sig.webhook_url, { ...buildWebhookBase(sig), event: 'document.expired', expiredAt: new Date().toISOString() });
       return res.status(410).json({ error: 'Enlace expirado' });
@@ -152,7 +164,39 @@ async function submitSignature(req, res, next) {
       ipAddress: ip,
     };
 
-    const signedPdfBuffer = await stampSignature(sig.document_original_path, signatureDataUrl, signerInfo);
+    // Determinar página y coordenadas del campo de firma según el tipo de documento
+    let signFieldOverride = null;
+    let signPageIndex = sig.sign_page_index || 0;
+    let extraSignLocations = [];
+
+    if (sig.npn_name) {
+      // Flujo NPN: coordenadas desde env vars
+      const x = parseFloat(process.env.NPN_SIGN_FIELD_X);
+      const y = parseFloat(process.env.NPN_SIGN_FIELD_Y);
+      const w = parseFloat(process.env.NPN_SIGN_FIELD_W);
+      const h = parseFloat(process.env.NPN_SIGN_FIELD_H);
+      if (!isNaN(x) && !isNaN(y)) {
+        signFieldOverride = { x, y, width: isNaN(w) ? 200 : w, height: isNaN(h) ? 50 : h };
+      }
+    } else if (signPageIndex > 0) {
+      // Flujo contrato de activación (send-with-data): coordenadas desde config JSON
+      try {
+        const contratoConfig = await getContratoSignConfig();
+        signFieldOverride = contratoConfig.signField;
+        extraSignLocations = contratoConfig.extraSignLocations;
+      } catch {
+        // Si no se puede leer el config, usar coordenadas de env vars o defaults
+        const x = parseFloat(process.env.ACTIVATION_SIGN_FIELD_X);
+        const y = parseFloat(process.env.ACTIVATION_SIGN_FIELD_Y);
+        const w = parseFloat(process.env.ACTIVATION_SIGN_FIELD_W);
+        const h = parseFloat(process.env.ACTIVATION_SIGN_FIELD_H);
+        if (!isNaN(x) && !isNaN(y)) {
+          signFieldOverride = { x, y, width: isNaN(w) ? 200 : w, height: isNaN(h) ? 50 : h };
+        }
+      }
+    }
+
+    const signedPdfBuffer = await stampSignature(sig.document_original_path, signatureDataUrl, signerInfo, signFieldOverride, signPageIndex, extraSignLocations);
     const signedHash = hashBuffer(Buffer.from(signedPdfBuffer));
 
     const signedFileName = `FIRMADO-${sig.id}-${sig.document_name}`;
