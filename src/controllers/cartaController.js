@@ -1,8 +1,27 @@
 const path = require('path');
 const fs = require('fs').promises;
+const XLSX = require('xlsx');
 const db = require('../config/database');
 const { resolveNpnTemplate, dispatchCartaToRecipient } = require('../services/cartaDispatchService');
 const { getServerLocation } = require('../utils/serverLocation');
+
+// Comparte los filtros de búsqueda entre el listado paginado y la exportación a Excel
+function buildCartaFilters(req) {
+  const { status, search, dateFrom, dateTo } = req.query;
+  let where = 'sr.npn_name IS NOT NULL';
+  const params = [];
+
+  if (req.user.role !== 'admin') { where += ' AND sr.agent_id = ?'; params.push(req.user.id); }
+  if (status) { where += ' AND sr.status = ?'; params.push(status); }
+  if (search) {
+    where += ' AND (sr.client_name LIKE ? OR sr.client_email LIKE ? OR sr.npn_name LIKE ?)';
+    params.push(`%${search}%`, `%${search}%`, `%${search}%`);
+  }
+  if (dateFrom) { where += ' AND DATE(sr.sent_at) >= ?'; params.push(dateFrom); }
+  if (dateTo)   { where += ' AND DATE(sr.sent_at) <= ?'; params.push(dateTo); }
+
+  return { where, params };
+}
 
 async function sendCarta(req, res, next) {
   try {
@@ -78,18 +97,9 @@ async function sendCarta(req, res, next) {
 
 async function listCartas(req, res, next) {
   try {
-    const { status, search, page = 1, limit = 20 } = req.query;
+    const { page = 1, limit = 20 } = req.query;
     const offset = (parseInt(page) - 1) * parseInt(limit);
-
-    let where  = 'sr.npn_name IS NOT NULL';
-    const params = [];
-
-    if (req.user.role !== 'admin') { where += ' AND sr.agent_id = ?'; params.push(req.user.id); }
-    if (status)  { where += ' AND sr.status = ?'; params.push(status); }
-    if (search)  {
-      where += ' AND (sr.client_name LIKE ? OR sr.client_email LIKE ? OR sr.npn_name LIKE ?)';
-      params.push(`%${search}%`, `%${search}%`, `%${search}%`);
-    }
+    const { where, params } = buildCartaFilters(req);
 
     const [rows] = await db.query(
       `SELECT sr.id, sr.client_name, sr.client_email, sr.client_phone,
@@ -109,6 +119,39 @@ async function listCartas(req, res, next) {
     );
 
     res.json({ data: rows, total, page: parseInt(page), limit: parseInt(limit) });
+  } catch (err) {
+    next(err);
+  }
+}
+
+async function exportCartas(req, res, next) {
+  try {
+    const { where, params } = buildCartaFilters(req);
+
+    const [rows] = await db.query(
+      `SELECT sr.client_name AS 'Cliente', sr.client_email AS 'Email', sr.client_phone AS 'Teléfono',
+              sr.npn_name AS 'NPN', sr.npn_code AS 'Código NPN', sr.send_channel AS 'Canal',
+              sr.status AS 'Estado', sr.sent_at AS 'Enviado', sr.viewed_at AS 'Abierto', sr.signed_at AS 'Firmado',
+              a.name AS 'Agente',
+              cfd.name AS 'Nombre actualizado', cfd.phone AS 'Teléfono actualizado',
+              cfd.email AS 'Email actualizado', cfd.postalcode AS 'Código postal',
+              cfd.submitted_at AS 'Formulario enviado'
+       FROM signature_requests sr
+       JOIN agents a ON sr.agent_id = a.id
+       LEFT JOIN carta_form_data cfd ON cfd.signature_request_id = sr.id
+       WHERE ${where}
+       ORDER BY sr.created_at DESC`,
+      params
+    );
+
+    const ws = XLSX.utils.json_to_sheet(rows);
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, 'Cartas');
+    const buffer = XLSX.write(wb, { type: 'buffer', bookType: 'xlsx' });
+
+    res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+    res.setHeader('Content-Disposition', `attachment; filename="cartas-${new Date().toISOString().slice(0, 10)}.xlsx"`);
+    res.send(buffer);
   } catch (err) {
     next(err);
   }
@@ -171,4 +214,4 @@ async function downloadSignedCarta(req, res, next) {
   }
 }
 
-module.exports = { sendCarta, listCartas, getCartaDetail, downloadSignedCarta };
+module.exports = { sendCarta, listCartas, exportCartas, getCartaDetail, downloadSignedCarta };

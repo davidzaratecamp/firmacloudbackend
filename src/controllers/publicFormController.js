@@ -30,6 +30,15 @@ async function validateFormToken(req, res, next) {
     if (!record) return res.status(404).json({ error: 'Enlace no válido' });
     if (record.status === 'signed') return res.status(409).json({ error: 'Este documento ya fue firmado' });
 
+    // El cliente llegó a la página del formulario = abrió el correo y vio el comunicado.
+    // Señal más confiable que el píxel de tracking (bloqueado por imágenes en muchos clientes de correo).
+    if (record.status === 'pending') {
+      db.query(
+        `UPDATE signature_requests SET status = 'viewed', viewed_at = NOW() WHERE id = ? AND status = 'pending'`,
+        [record.id]
+      ).catch(err => console.error('[publicForm] Error marcando visto:', err.message));
+    }
+
     res.json({ clientName: record.client_name, status: record.status });
   } catch (err) {
     next(err);
