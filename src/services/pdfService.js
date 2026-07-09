@@ -1,8 +1,11 @@
 const { PDFDocument, rgb, StandardFonts } = require('pdf-lib');
+const fontkit = require('@pdf-lib/fontkit');
 const fs = require('fs').promises;
 const path = require('path');
 
 const TEMPLATES_DIR = path.resolve(process.env.DOCUMENT_TEMPLATES_DIR || path.join(__dirname, '../../document-templates'));
+const FONTS_DIR = path.join(__dirname, '../assets/fonts');
+const PAGE3_INDEX = 2; // índice 0-based de la página "Activación de póliza" en combinado 2.pdf
 
 function resolveSignField(override) {
   if (override) return override;
@@ -36,6 +39,7 @@ async function stampSignature(originalPdfPath, signatureDataUrl, signerInfo, sig
 
   const pdfBytes = await fs.readFile(originalPdfPath);
   const pdfDoc = await PDFDocument.load(pdfBytes);
+  pdfDoc.registerFontkit(fontkit);
 
   const base64Data = signatureDataUrl.replace(/^data:image\/png;base64,/, '');
   const signatureImageBytes = Buffer.from(base64Data, 'base64');
@@ -45,6 +49,11 @@ async function stampSignature(originalPdfPath, signatureDataUrl, signerInfo, sig
 
   const font = await pdfDoc.embedFont(StandardFonts.Helvetica);
   const fontBold = await pdfDoc.embedFont(StandardFonts.HelveticaBold);
+
+  // Myriad Pro: misma fuente que el resto de los valores de página 3 (Activación de póliza),
+  // usada solo para el valor de IP estampado en esa página al firmar.
+  const page3RegularBytes = await fs.readFile(path.join(FONTS_DIR, 'MyriadPro-Regular.otf'));
+  const page3Font = await pdfDoc.embedFont(page3RegularBytes, { features: { liga: false, rlig: false, clig: false } });
 
   const d = signerInfo.signedAt instanceof Date ? signerInfo.signedAt : new Date(signerInfo.signedAt);
   const pad = n => String(n).padStart(2, '0');
@@ -128,8 +137,8 @@ async function stampSignature(originalPdfPath, signatureDataUrl, signerInfo, sig
     pages[2].drawText(signerInfo.ipAddress || 'N/A', {
       x: 25.5 + labelW + 30,
       y: 202.4,
-      size: 9,
-      font,
+      size: 12,
+      font: page3Font,
       color: rgb(0, 0, 0),
     });
   }
@@ -457,10 +466,26 @@ async function fillContratoActivacion(documentData) {
   const templatePath = path.join(TEMPLATES_DIR, config.templateFile);
   const templateBytes = await fs.readFile(templatePath);
   const pdfDoc = await PDFDocument.load(templateBytes);
+  pdfDoc.registerFontkit(fontkit);
 
   const font     = await pdfDoc.embedFont(StandardFonts.Helvetica);
   const fontBold = await pdfDoc.embedFont(StandardFonts.HelveticaBold);
-  const pages    = pdfDoc.getPages();
+
+  // Página 3 (Activación de póliza) usa Myriad Pro — no es una fuente estándar de PDF,
+  // se embebe desde el archivo licenciado en src/assets/fonts/.
+  const [page3RegularBytes, page3BoldBytes] = await Promise.all([
+    fs.readFile(path.join(FONTS_DIR, 'MyriadPro-Regular.otf')),
+    fs.readFile(path.join(FONTS_DIR, 'MyriadPro-Bold.otf')),
+  ]);
+  // liga/rlig/clig deshabilitadas: sin esto pdf-lib sustituye "fi"/"fl" por un glifo de
+  // ligadura que esta fuente no renderiza bien (glifo en blanco / hueco visual).
+  const noLigatures = { features: { liga: false, rlig: false, clig: false } };
+  const page3Font     = await pdfDoc.embedFont(page3RegularBytes, noLigatures);
+  const page3FontBold = await pdfDoc.embedFont(page3BoldBytes, noLigatures);
+  const page3ValueColor = rgb(0.35, 0.35, 0.35); // más claro que las etiquetas pre-impresas (negro)
+  const beneficiaryLabelColor = rgb(0, 0, 0); // "Beneficiario N:" / "Estatus migratorio:": sin negrita, tono oscuro en su lugar
+
+  const pages = pdfDoc.getPages();
 
   // Valor computado: saludo con nombre completo
   const computed = {
@@ -481,24 +506,30 @@ async function fillContratoActivacion(documentData) {
     if (!pageObj) continue;
 
     const fontSize = field.fontSize || 9.5;
+    const isPage3 = field.page === PAGE3_INDEX;
+    const fieldFont     = isPage3 ? page3Font     : font;
+    const fieldFontBold  = isPage3 ? page3FontBold : fontBold;
+
+    // El saludo ("Hola...") es un encabezado en negrita y debe quedarse en negro, no gris.
+    const valueColor = isPage3 && !field.bold ? page3ValueColor : rgb(0, 0, 0);
 
     if (field.label) {
       // Draw bold label then normal value inline (CartaPlantillaAfiliados style)
       pageObj.drawText(field.label, {
         x: field.x, y: field.y,
-        size: fontSize, font: fontBold, color: rgb(0, 0, 0),
+        size: fontSize, font: fieldFontBold, color: rgb(0, 0, 0),
       });
-      const labelWidth = fontBold.widthOfTextAtSize(field.label, fontSize);
+      const labelWidth = fieldFontBold.widthOfTextAtSize(field.label, fontSize);
       pageObj.drawText(value, {
         x: field.x + labelWidth, y: field.y,
-        size: fontSize, font, color: rgb(0, 0, 0),
+        size: fontSize, font: fieldFont, color: valueColor,
       });
     } else {
       pageObj.drawText(value, {
         x: field.x, y: field.y,
         size: fontSize,
-        font: field.bold ? fontBold : font,
-        color: rgb(0, 0, 0),
+        font: field.bold ? fieldFontBold : fieldFont,
+        color: valueColor,
       });
     }
   }
@@ -506,12 +537,11 @@ async function fillContratoActivacion(documentData) {
   // ── Beneficiarios (columna derecha, página 3) ─────────────────────────────
   const beneficiarios = documentData.page3?.beneficiaries;
   if (Array.isArray(beneficiarios) && beneficiarios.length > 0) {
-    const page3   = pages[2];
-    const FONT_SIZE = 9;
+    const page3   = pages[PAGE3_INDEX];
+    const FONT_SIZE = 11;
     const X_BENE    = 280;   // columna derecha
     const Y_START   = 680;   // misma altura que "Nombres:" en columna izquierda
-    const LINE_GAP  = 21;    // espaciado entre líneas
-    const BENE_GAP  = 10;    // espacio extra entre beneficiarios
+    const LINE_GAP  = 21;    // espaciado entre líneas (uniforme, sin gap extra entre beneficiarios)
 
     let y = Y_START;
 
@@ -521,21 +551,27 @@ async function fillContratoActivacion(documentData) {
 
       if (nombre) {
         const labelBene = `Beneficiario ${i + 1}: `;
-        const labelW    = fontBold.widthOfTextAtSize(labelBene, FONT_SIZE);
-        page3.drawText(labelBene, { x: X_BENE, y, size: FONT_SIZE, font: fontBold, color: rgb(0, 0, 0) });
-        page3.drawText(nombre,    { x: X_BENE + labelW, y, size: FONT_SIZE, font, color: rgb(0, 0, 0) });
+        const labelW    = page3Font.widthOfTextAtSize(labelBene, FONT_SIZE);
+        page3.drawText(labelBene, { x: X_BENE, y, size: FONT_SIZE, font: page3Font, color: beneficiaryLabelColor });
+        page3.drawText(nombre,    { x: X_BENE + labelW, y, size: FONT_SIZE, font: page3Font, color: page3ValueColor });
         y -= LINE_GAP;
       }
 
       if (b.migratoryStatus) {
         const labelMig = 'Estatus migratorio: ';
-        const labelW   = fontBold.widthOfTextAtSize(labelMig, FONT_SIZE);
-        page3.drawText(labelMig,           { x: X_BENE, y, size: FONT_SIZE, font: fontBold, color: rgb(0, 0, 0) });
-        page3.drawText(b.migratoryStatus,  { x: X_BENE + labelW, y, size: FONT_SIZE, font, color: rgb(0, 0, 0) });
+        const labelW   = page3Font.widthOfTextAtSize(labelMig, FONT_SIZE);
+        page3.drawText(labelMig,           { x: X_BENE, y, size: FONT_SIZE, font: page3Font, color: beneficiaryLabelColor });
+        page3.drawText(b.migratoryStatus,  { x: X_BENE + labelW, y, size: FONT_SIZE, font: page3Font, color: page3ValueColor });
         y -= LINE_GAP;
       }
 
-      y -= BENE_GAP;
+      if (b.enrollPolicy) {
+        const labelEnroll = 'Enrolla póliza: ';
+        const labelW      = page3Font.widthOfTextAtSize(labelEnroll, FONT_SIZE);
+        page3.drawText(labelEnroll,     { x: X_BENE, y, size: FONT_SIZE, font: page3Font, color: beneficiaryLabelColor });
+        page3.drawText(b.enrollPolicy,  { x: X_BENE + labelW, y, size: FONT_SIZE, font: page3Font, color: page3ValueColor });
+        y -= LINE_GAP;
+      }
     }
   }
 

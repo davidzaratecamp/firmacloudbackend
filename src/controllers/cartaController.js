@@ -1,20 +1,8 @@
-const { v4: uuidv4 } = require('uuid');
 const path = require('path');
 const fs = require('fs').promises;
 const db = require('../config/database');
-const { generateSecureToken, getTokenExpiry } = require('../utils/token');
-const { hashFile } = require('../utils/hash');
-const { sendCartaFormulario } = require('../services/cartaEmailService');
-const { sendFormWhatsApp, normalizePhone } = require('../services/whatsappService');
+const { resolveNpnTemplate, dispatchCartaToRecipient } = require('../services/cartaDispatchService');
 const { getServerLocation } = require('../utils/serverLocation');
-
-const UPLOADS_DIR = path.resolve(process.env.UPLOADS_DIR || path.join(__dirname, '../../uploads'));
-
-function getPlantillaPath(npnName) {
-  const dir = process.env.PLANTILLAS_DIR || path.join(__dirname, '../../../plantillas');
-  return path.join(dir, `${npnName}.pdf`);
-}
-
 
 async function sendCarta(req, res, next) {
   try {
@@ -27,15 +15,13 @@ async function sendCarta(req, res, next) {
     if (!Array.isArray(recipients) || recipients.length === 0)
       return res.status(400).json({ error: 'Se requiere al menos un destinatario' });
 
-    const cartaPath = getPlantillaPath(npnName.trim());
+    let cartaPath, docName, docHash;
     try {
-      await fs.access(cartaPath);
+      ({ cartaPath, docName, docHash } = await resolveNpnTemplate(npnName));
     } catch {
       return res.status(404).json({ error: `Plantilla no encontrada: ${npnName}.pdf` });
     }
 
-    const docName  = `${npnName.trim()}.pdf`;
-    const docHash  = await hashFile(cartaPath);
     const serverLoc = getServerLocation();
     const results  = [];
     const errors   = [];
@@ -57,52 +43,17 @@ async function sendCarta(req, res, next) {
       }
 
       try {
-        const id         = uuidv4();
-        const token      = generateSecureToken();
-        const tokenExpiry = new Date('2037-12-31T22:59:59.000Z'); // cartas NPN no expiran (máx TIMESTAMP MySQL)
-
-        // Copy the NPN template for this specific signing request
-        const uploadPath = path.join(UPLOADS_DIR, `${id}-${docName}`);
-        await fs.copyFile(cartaPath, uploadPath);
-
-        await db.query(
-          `INSERT INTO signature_requests
-           (id, agent_id, document_name, document_original_path, document_hash,
-            client_name, client_email, client_phone, send_channel,
-            token, token_expires_at, npn_name, npn_code, sent_from_ip)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-          [
-            id, req.user.id, docName, uploadPath, docHash,
-            clientName.trim(), clientEmail || null, clientPhone || null, sendChannel,
-            token, tokenExpiry, npnName.trim(), npnCode || null,
-            serverLoc?.ip || null,
-          ]
-        );
-
-        if (sendChannel === 'email' || sendChannel === 'both') {
-          await sendCartaFormulario({
-            clientName: clientName.trim(),
-            clientEmail,
-            token,
-            requestId:  id,
-            cartaPath,
-            npnName:    npnName.trim(),
-          });
-        }
-
-        if (sendChannel === 'whatsapp' || sendChannel === 'both') {
-          try {
-            await sendFormWhatsApp({ clientName: clientName.trim(), clientPhone, token, npnName: npnName.trim() });
-          } catch (waErr) {
-            if (sendChannel === 'whatsapp') {
-              await db.query('DELETE FROM signature_requests WHERE id = ?', [id]);
-              await fs.unlink(uploadPath).catch(() => {});
-              errors.push({ recipient, error: `WhatsApp no disponible: ${waErr.message}` });
-              continue;
-            }
-            console.error(`[whatsapp-carta] Fallo enviando a ${clientPhone}:`, waErr.message);
-          }
-        }
+        const { id } = await dispatchCartaToRecipient({
+          agentId: req.user.id,
+          npnName,
+          npnCode,
+          cartaPath, docName, docHash,
+          sendChannel,
+          clientName: clientName.trim(),
+          clientEmail,
+          clientPhone,
+          sentFromIp: serverLoc?.ip,
+        });
 
         results.push({ id, clientName: clientName.trim(), status: 'pending' });
       } catch (recipientErr) {
@@ -176,10 +127,12 @@ async function getCartaDetail(req, res, next) {
               sr.status, sr.sent_at, sr.viewed_at, sr.signed_at,
               sr.signer_name, sr.signer_ip, sr.sent_from_ip, sr.created_at,
               sr.npn_name, sr.npn_code, a.name AS agent_name,
-              sr.form_name, sr.form_phone, sr.form_email, sr.form_postalcode,
-              sr.form_submitted_at, sr.form_social_path, sr.form_status_path
+              cfd.name AS form_name, cfd.phone AS form_phone, cfd.email AS form_email,
+              cfd.postalcode AS form_postalcode, cfd.submitted_at AS form_submitted_at,
+              cfd.social_path AS form_social_path, cfd.status_path AS form_status_path
        FROM signature_requests sr
        JOIN agents a ON sr.agent_id = a.id
+       LEFT JOIN carta_form_data cfd ON cfd.signature_request_id = sr.id
        WHERE sr.id = ? AND sr.npn_name IS NOT NULL ${ownerFilter}`,
       params
     );

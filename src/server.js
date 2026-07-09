@@ -3,6 +3,7 @@ const path = require('path');
 const fs = require('fs');
 require('dotenv').config({ path: path.join(__dirname, '../.env') });
 const { resolveServerLocation } = require('./utils/serverLocation');
+const { startOleadaScheduler } = require('./jobs/oleadaScheduler');
 
 const PORT = process.env.PORT || 3000;
 const ROOT = path.join(__dirname, '..');
@@ -25,4 +26,5 @@ if (process.env.PLANTILLAS_DIR && !path.isAbsolute(process.env.PLANTILLAS_DIR)) 
 app.listen(PORT, () => {
   console.log(`FirmaCloud API running on port ${PORT}`);
   resolveServerLocation();
+  startOleadaScheduler();
 });
