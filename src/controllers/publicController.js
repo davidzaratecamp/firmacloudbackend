@@ -109,8 +109,9 @@ async function getDocumentForSigning(req, res, next) {
       ? sig.document_original_path
       : path.join(__dirname, '../../', sig.document_original_path);
 
-    // Allow PDF to be embedded/fetched from any allowed origin (CORS middleware handles the header)
-    res.setHeader('X-Frame-Options', 'ALLOWALL');
+    // Nginx ya agrega X-Frame-Options: SAMEORIGIN a nivel servidor. Fijar aquí un valor
+    // distinto (ALLOWALL) hacía que el navegador recibiera dos headers en conflicto y
+    // bloqueara el iframe que lo embebe (FormularioPublico.jsx) en vez de mostrarlo.
     res.setHeader('Content-Type', 'application/pdf');
 
     res.sendFile(filePath, (err) => {
