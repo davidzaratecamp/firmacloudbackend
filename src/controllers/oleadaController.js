@@ -157,7 +157,7 @@ async function listOleadaRecipients(req, res, next) {
 
     const [rows] = await db.query(
       `SELECT r.id, r.name, r.email, r.phone, r.row_status, r.send_error, r.sent_at,
-              sr.status AS carta_status, sr.viewed_at, sr.signed_at
+              r.signature_request_id, sr.status AS carta_status, sr.viewed_at, sr.signed_at
        FROM oleada_recipients r
        LEFT JOIN signature_requests sr ON sr.id = r.signature_request_id
        WHERE ${where}

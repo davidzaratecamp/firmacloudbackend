@@ -1,5 +1,5 @@
 const path = require('path');
-const transporter = require('../config/email');
+const transporter = require('../config/npnEmail');
 
 const PIXEL_PNG = Buffer.from(
   'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAAC0lEQVQI12NgAAIABQAABjE+ibYAAAAASUVORK5CYII=',
