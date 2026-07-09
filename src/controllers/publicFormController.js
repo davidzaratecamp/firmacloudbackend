@@ -57,12 +57,15 @@ async function submitForm(req, res, next) {
     const statusPath = req.files?.status_migratorio?.[0]?.path || null;
 
     await db.query(
-      `UPDATE signature_requests
-       SET form_name = ?, form_phone = ?, form_email = ?,
-           form_postalcode = ?, form_submitted_at = ?,
-           form_social_path = ?, form_status_path = ?
-       WHERE id = ?`,
+      `INSERT INTO carta_form_data
+         (signature_request_id, name, phone, email, postalcode, submitted_at, social_path, status_path)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+       ON DUPLICATE KEY UPDATE
+         name = VALUES(name), phone = VALUES(phone), email = VALUES(email),
+         postalcode = VALUES(postalcode), submitted_at = VALUES(submitted_at),
+         social_path = VALUES(social_path), status_path = VALUES(status_path)`,
       [
+        record.id,
         body.name.trim(),
         body.phone.trim(),
         body.email.trim().toLowerCase(),
@@ -70,7 +73,6 @@ async function submitForm(req, res, next) {
         new Date(),
         socialPath,
         statusPath,
-        record.id,
       ]
     );
 

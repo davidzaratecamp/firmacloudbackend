@@ -12,6 +12,7 @@ const webhookRoutes = require('./routes/webhook');
 const cartasRoutes = require('./routes/cartas');
 const publicFormRoutes = require('./routes/publicForm');
 const trackingRoutes = require('./routes/tracking');
+const oleadasRoutes = require('./routes/oleadas');
 const errorHandler = require('./middleware/errorHandler');
 
 const app = express();
@@ -50,6 +51,7 @@ app.use('/api/webhook/whatsapp', webhookRoutes);
 app.use('/api/cartas', cartasRoutes);
 app.use('/api/formulario', publicFormRoutes);
 app.use('/api/tracking', trackingRoutes);
+app.use('/api/oleadas', oleadasRoutes);
 
 app.get('/api/health', (req, res) => res.json({ status: 'ok', timestamp: new Date().toISOString() }));
 

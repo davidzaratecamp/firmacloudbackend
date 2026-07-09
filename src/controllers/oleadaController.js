@@ -1,0 +1,224 @@
+const db = require('../config/database');
+const { resolveNpnTemplate } = require('../services/cartaDispatchService');
+const { parseRecipientsFile } = require('../services/oleadaFileParser');
+const { sendNextBatch } = require('../services/oleadaBatchService');
+
+function ownerClause(req, alias = 'o') {
+  if (req.user.role === 'admin' || req.user.isApiKey) return { clause: '', params: [] };
+  return { clause: `AND ${alias}.created_by = ?`, params: [req.user.id] };
+}
+
+async function createOleada(req, res, next) {
+  try {
+    const { npnName, npnCode, name, sendChannel = 'email', dailyLimit } = req.body;
+
+    if (!req.file) return res.status(400).json({ error: 'Archivo requerido (CSV o Excel)' });
+    if (!npnName || typeof npnName !== 'string' || !npnName.trim())
+      return res.status(400).json({ error: 'NPN requerido' });
+    if (!name || typeof name !== 'string' || !name.trim())
+      return res.status(400).json({ error: 'Nombre de la oleada requerido' });
+    if (!['email', 'whatsapp', 'both'].includes(sendChannel))
+      return res.status(400).json({ error: 'Canal inválido. Use: email, whatsapp o both' });
+    const limit = parseInt(dailyLimit);
+    if (!limit || limit <= 0)
+      return res.status(400).json({ error: 'dailyLimit debe ser un número mayor a 0' });
+
+    try {
+      await resolveNpnTemplate(npnName);
+    } catch {
+      return res.status(404).json({ error: `Plantilla no encontrada: ${npnName}.pdf` });
+    }
+
+    let valid, invalid;
+    try {
+      ({ valid, invalid } = parseRecipientsFile(req.file.buffer, sendChannel));
+    } catch (err) {
+      return res.status(400).json({ error: err.message });
+    }
+
+    if (valid.length === 0)
+      return res.status(400).json({ error: 'El archivo no contiene destinatarios válidos', invalidRows: invalid });
+
+    const [result] = await db.query(
+      `INSERT INTO oleadas (name, npn_name, npn_code, send_channel, daily_limit, total_recipients, source_filename, created_by)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+      [name.trim(), npnName.trim(), npnCode || null, sendChannel, limit, valid.length, req.file.originalname, req.user.id]
+    );
+    const oleadaId = result.insertId;
+
+    for (const r of valid) {
+      await db.query(
+        `INSERT INTO oleada_recipients (oleada_id, name, email, phone) VALUES (?, ?, ?, ?)`,
+        [oleadaId, r.name, r.email, r.phone]
+      );
+    }
+
+    res.status(201).json({
+      oleada: { id: oleadaId, name: name.trim(), npnName: npnName.trim(), sendChannel, dailyLimit: limit, totalRecipients: valid.length },
+      validRows: valid.length,
+      invalidRows: invalid,
+    });
+  } catch (err) {
+    next(err);
+  }
+}
+
+async function listOleadas(req, res, next) {
+  try {
+    const { status, search, page = 1, limit = 20 } = req.query;
+    const offset = (parseInt(page) - 1) * parseInt(limit);
+
+    const { clause: ownerFilter, params: ownerParams } = ownerClause(req);
+    let where = '1=1';
+    const params = [...ownerParams];
+
+    if (status) { where += ' AND o.status = ?'; params.push(status); }
+    if (search) { where += ' AND (o.name LIKE ? OR o.npn_name LIKE ?)'; params.push(`%${search}%`, `%${search}%`); }
+
+    const [rows] = await db.query(
+      `SELECT o.id, o.name, o.npn_name, o.npn_code, o.send_channel, o.daily_limit,
+              o.status, o.total_recipients, o.sent_count, o.failed_count,
+              o.last_batch_sent_date, o.created_at, a.name AS agent_name
+       FROM oleadas o
+       JOIN agents a ON o.created_by = a.id
+       WHERE ${where} ${ownerFilter}
+       ORDER BY o.created_at DESC
+       LIMIT ? OFFSET ?`,
+      [...params, parseInt(limit), parseInt(offset)]
+    );
+
+    const [[{ total }]] = await db.query(
+      `SELECT COUNT(*) AS total FROM oleadas o WHERE ${where} ${ownerFilter}`,
+      params
+    );
+
+    res.json({ data: rows, total, page: parseInt(page), limit: parseInt(limit) });
+  } catch (err) {
+    next(err);
+  }
+}
+
+async function getOleadaDetail(req, res, next) {
+  try {
+    const { id } = req.params;
+    const { clause: ownerFilter, params: ownerParams } = ownerClause(req);
+
+    const [rows] = await db.query(
+      `SELECT o.*, a.name AS agent_name
+       FROM oleadas o
+       JOIN agents a ON o.created_by = a.id
+       WHERE o.id = ? ${ownerFilter}`,
+      [id, ...ownerParams]
+    );
+    if (!rows.length) return res.status(404).json({ error: 'No encontrado' });
+
+    const [[counts]] = await db.query(
+      `SELECT
+         SUM(r.row_status = 'pending') AS pending_count,
+         SUM(r.row_status = 'failed')  AS failed_count,
+         SUM(r.row_status = 'sent' AND sr.status = 'pending') AS sent_count,
+         SUM(r.row_status = 'sent' AND sr.status = 'viewed')  AS viewed_count,
+         SUM(r.row_status = 'sent' AND sr.status = 'signed')  AS signed_count
+       FROM oleada_recipients r
+       LEFT JOIN signature_requests sr ON sr.id = r.signature_request_id
+       WHERE r.oleada_id = ?`,
+      [id]
+    );
+
+    res.json({ ...rows[0], counts });
+  } catch (err) {
+    next(err);
+  }
+}
+
+async function listOleadaRecipients(req, res, next) {
+  try {
+    const { id } = req.params;
+    const { filter, page = 1, limit = 20 } = req.query;
+    const offset = (parseInt(page) - 1) * parseInt(limit);
+
+    const { clause: ownerFilter, params: ownerParams } = ownerClause(req, 'o');
+    const [owned] = await db.query(`SELECT o.id FROM oleadas o WHERE o.id = ? ${ownerFilter}`, [id, ...ownerParams]);
+    if (!owned.length) return res.status(404).json({ error: 'No encontrado' });
+
+    let where = 'r.oleada_id = ?';
+    const params = [id];
+
+    if (filter === 'pending' || filter === 'failed') {
+      where += ' AND r.row_status = ?';
+      params.push(filter);
+    } else if (filter === 'sent') {
+      where += ` AND r.row_status = 'sent' AND sr.status = 'pending'`;
+    } else if (filter === 'viewed') {
+      where += ` AND r.row_status = 'sent' AND sr.status = 'viewed'`;
+    } else if (filter === 'signed') {
+      where += ` AND r.row_status = 'sent' AND sr.status = 'signed'`;
+    }
+
+    const [rows] = await db.query(
+      `SELECT r.id, r.name, r.email, r.phone, r.row_status, r.send_error, r.sent_at,
+              sr.status AS carta_status, sr.viewed_at, sr.signed_at
+       FROM oleada_recipients r
+       LEFT JOIN signature_requests sr ON sr.id = r.signature_request_id
+       WHERE ${where}
+       ORDER BY r.id ASC
+       LIMIT ? OFFSET ?`,
+      [...params, parseInt(limit), parseInt(offset)]
+    );
+
+    const [[{ total }]] = await db.query(
+      `SELECT COUNT(*) AS total FROM oleada_recipients r LEFT JOIN signature_requests sr ON sr.id = r.signature_request_id WHERE ${where}`,
+      params
+    );
+
+    res.json({ data: rows, total, page: parseInt(page), limit: parseInt(limit) });
+  } catch (err) {
+    next(err);
+  }
+}
+
+async function sendOleadaNow(req, res, next) {
+  try {
+    const { id } = req.params;
+    const { clause: ownerFilter, params: ownerParams } = ownerClause(req);
+    const [rows] = await db.query(`SELECT id FROM oleadas o WHERE o.id = ? ${ownerFilter}`, [id, ...ownerParams]);
+    if (!rows.length) return res.status(404).json({ error: 'No encontrado' });
+
+    const result = await sendNextBatch(parseInt(id));
+    res.json(result);
+  } catch (err) {
+    next(err);
+  }
+}
+
+function setOleadaStatus(newStatus) {
+  return async function (req, res, next) {
+    try {
+      const { id } = req.params;
+      const { clause: ownerFilter, params: ownerParams } = ownerClause(req);
+      const [rows] = await db.query(`SELECT status FROM oleadas o WHERE o.id = ? ${ownerFilter}`, [id, ...ownerParams]);
+      if (!rows.length) return res.status(404).json({ error: 'No encontrado' });
+
+      const current = rows[0].status;
+      const allowedFrom = { paused: ['active'], active: ['paused'], cancelled: ['active', 'paused'] };
+      if (!allowedFrom[newStatus].includes(current))
+        return res.status(400).json({ error: `No se puede pasar de '${current}' a '${newStatus}'` });
+
+      await db.query(`UPDATE oleadas SET status = ? WHERE id = ?`, [newStatus, id]);
+      res.json({ ok: true, status: newStatus });
+    } catch (err) {
+      next(err);
+    }
+  };
+}
+
+module.exports = {
+  createOleada,
+  listOleadas,
+  getOleadaDetail,
+  listOleadaRecipients,
+  sendOleadaNow,
+  pauseOleada: setOleadaStatus('paused'),
+  resumeOleada: setOleadaStatus('active'),
+  cancelOleada: setOleadaStatus('cancelled'),
+};
