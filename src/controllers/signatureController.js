@@ -11,6 +11,7 @@ const { triggerWebhook } = require('../services/webhookService');
 const { getServerLocation } = require('../utils/serverLocation');
 
 const UPLOADS_DIR = path.resolve(process.env.UPLOADS_DIR || path.join(__dirname, '../../uploads'));
+const SIGNED_DIR  = path.resolve(process.env.SIGNED_DIR  || path.join(__dirname, '../../signed'));
 
 async function sendDocument(req, res, next) {
   try {
@@ -206,6 +207,43 @@ async function downloadCertificate(req, res, next) {
   }
 }
 
+async function replaceSignedDocument(req, res, next) {
+  try {
+    const { id } = req.params;
+    if (!req.file) return res.status(400).json({ error: 'Archivo PDF requerido' });
+    if (path.extname(req.file.originalname).toLowerCase() !== '.pdf') {
+      return res.status(400).json({ error: 'El archivo debe ser un PDF' });
+    }
+
+    const ownerFilter = req.user.role !== 'admin' ? 'AND agent_id = ?' : '';
+    const params = req.user.role !== 'admin' ? [id, req.user.id] : [id];
+    const [rows] = await db.query(`SELECT * FROM signature_requests WHERE id = ? ${ownerFilter}`, params);
+    if (!rows.length) return res.status(404).json({ error: 'No encontrado' });
+
+    const sig = rows[0];
+    if (sig.status !== 'signed' || !sig.signed_document_path) {
+      return res.status(400).json({ error: 'Solo se puede reemplazar el PDF de una firma ya completada' });
+    }
+
+    const safeName = path.basename(req.file.originalname).replace(/[^a-zA-Z0-9._-]/g, '_');
+    const newPath = path.join(SIGNED_DIR, `FIRMADO-${id}-${Date.now()}-${safeName}`);
+    await fs.writeFile(newPath, req.file.buffer);
+
+    const oldPath = sig.signed_document_path;
+    await db.query('UPDATE signature_requests SET signed_document_path = ? WHERE id = ?', [newPath, id]);
+    await fs.unlink(path.resolve(oldPath)).catch(() => {});
+
+    await db.query(
+      'INSERT INTO activity_logs (signature_request_id, event_type, details) VALUES (?, ?, ?)',
+      [id, 'DOCUMENT_REPLACED', JSON.stringify({ replacedBy: req.user.name || req.user.email, originalName: req.file.originalname })]
+    );
+
+    res.json({ ok: true, message: 'PDF firmado reemplazado correctamente' });
+  } catch (err) {
+    next(err);
+  }
+}
+
 async function getDashboardStats(req, res, next) {
   try {
     const isAdmin    = req.user.role === 'admin';
@@ -365,4 +403,4 @@ async function sendDocumentWithData(req, res, next) {
   }
 }
 
-module.exports = { sendDocument, sendDocumentWithData, listSignatures, getSignature, downloadSignedDocument, downloadCertificate, getDashboardStats, deleteSignature };
+module.exports = { sendDocument, sendDocumentWithData, listSignatures, getSignature, downloadSignedDocument, downloadCertificate, replaceSignedDocument, getDashboardStats, deleteSignature };
