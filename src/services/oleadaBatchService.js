@@ -7,41 +7,40 @@ function todayInTZ(tz) {
   return new Intl.DateTimeFormat('en-CA', { timeZone: tz }).format(new Date());
 }
 
-// Compartida entre el cron diario y el botón manual "Enviar lote de hoy".
-// El guard atómico garantiza que solo uno de los dos gane la carrera del día.
-async function sendNextBatch(oleadaId) {
-  const tz = process.env.OLEADA_CRON_TIMEZONE || 'America/Bogota';
-  const today = todayInTZ(tz);
+// "HH:mm" en la timezone dada, para comparar contra OLEADA_BUSINESS_HOURS_START/END
+function timeOfDayInTZ(tz) {
+  return new Intl.DateTimeFormat('en-GB', {
+    timeZone: tz, hour: '2-digit', minute: '2-digit', hour12: false,
+  }).format(new Date());
+}
 
-  const [guard] = await db.query(
-    `UPDATE oleadas SET last_batch_sent_date = ?
-     WHERE id = ? AND status = 'active'
-       AND (last_batch_sent_date IS NULL OR last_batch_sent_date < ?)`,
-    [today, oleadaId, today]
-  );
-  if (guard.affectedRows === 0) {
-    return { skipped: true, reason: 'already_sent_today_or_not_active' };
-  }
+function isWithinBusinessHours(tz) {
+  const start = process.env.OLEADA_BUSINESS_HOURS_START || '08:00';
+  const end = process.env.OLEADA_BUSINESS_HOURS_END || '19:00';
+  const now = timeOfDayInTZ(tz);
+  return now >= start && now < end;
+}
 
-  const [[oleada]] = await db.query('SELECT * FROM oleadas WHERE id = ?', [oleadaId]);
-
+// Envía hasta `limit` destinatarios pending de la oleada. Común a modo 'daily' y 'drip' —
+// el guard de cuándo se puede llamar vive en cada modo, no aquí.
+async function dispatchPendingBatch(oleada, limit) {
   let template;
   try {
     template = await resolveNpnTemplate(oleada.npn_name);
   } catch (err) {
-    console.error(`[oleada ${oleadaId}] Plantilla no encontrada, pausando oleada:`, err.message);
-    await db.query(`UPDATE oleadas SET status = 'paused' WHERE id = ?`, [oleadaId]);
+    console.error(`[oleada ${oleada.id}] Plantilla no encontrada, pausando oleada:`, err.message);
+    await db.query(`UPDATE oleadas SET status = 'paused' WHERE id = ?`, [oleada.id]);
     return { skipped: true, reason: 'template_not_found' };
   }
 
   const [pending] = await db.query(
     `SELECT * FROM oleada_recipients WHERE oleada_id = ? AND row_status = 'pending'
      ORDER BY id ASC LIMIT ?`,
-    [oleadaId, oleada.daily_limit]
+    [oleada.id, limit]
   );
 
   if (pending.length === 0) {
-    await db.query(`UPDATE oleadas SET status = 'completed' WHERE id = ?`, [oleadaId]);
+    await db.query(`UPDATE oleadas SET status = 'completed' WHERE id = ?`, [oleada.id]);
     return { sent: 0, failed: 0, completed: true };
   }
 
@@ -80,18 +79,66 @@ async function sendNextBatch(oleadaId) {
 
   await db.query(
     `UPDATE oleadas SET sent_count = sent_count + ?, failed_count = failed_count + ? WHERE id = ?`,
-    [sent, failed, oleadaId]
+    [sent, failed, oleada.id]
   );
 
   const [[{ remaining }]] = await db.query(
     `SELECT COUNT(*) AS remaining FROM oleada_recipients WHERE oleada_id = ? AND row_status = 'pending'`,
-    [oleadaId]
+    [oleada.id]
   );
   if (remaining === 0) {
-    await db.query(`UPDATE oleadas SET status = 'completed' WHERE id = ?`, [oleadaId]);
+    await db.query(`UPDATE oleadas SET status = 'completed' WHERE id = ?`, [oleada.id]);
   }
 
   return { sent, failed, remaining };
 }
 
-module.exports = { sendNextBatch, todayInTZ };
+// Modo histórico ('daily'): una vez al día, hasta daily_limit destinatarios.
+// Compartida entre el cron diario y el botón manual "Enviar lote de hoy", para oleadas
+// creadas antes del modo 'drip' (siguen funcionando exactamente igual que antes).
+async function sendNextBatch(oleadaId) {
+  const tz = process.env.OLEADA_CRON_TIMEZONE || 'America/Bogota';
+  const today = todayInTZ(tz);
+
+  const [guard] = await db.query(
+    `UPDATE oleadas SET last_batch_sent_date = ?
+     WHERE id = ? AND status = 'active' AND send_mode = 'daily'
+       AND (last_batch_sent_date IS NULL OR last_batch_sent_date < ?)`,
+    [today, oleadaId, today]
+  );
+  if (guard.affectedRows === 0) {
+    return { skipped: true, reason: 'already_sent_today_or_not_active' };
+  }
+
+  const [[oleada]] = await db.query('SELECT * FROM oleadas WHERE id = ?', [oleadaId]);
+  return dispatchPendingBatch(oleada, oleada.daily_limit);
+}
+
+// Modo por defecto ('drip'): lotes de tamaño fijo (OLEADA_DRIP_BATCH_SIZE) cada N minutos
+// (OLEADA_DRIP_INTERVAL_MINUTES), sin importar el total de destinatarios de la oleada,
+// solo dentro del horario laboral configurado. Se llama inmediatamente al crear la oleada
+// y luego periódicamente desde el scheduler.
+async function sendDripBatch(oleadaId) {
+  const tz = process.env.OLEADA_CRON_TIMEZONE || 'America/Bogota';
+  if (!isWithinBusinessHours(tz)) {
+    return { skipped: true, reason: 'outside_business_hours' };
+  }
+
+  const intervalMinutes = parseInt(process.env.OLEADA_DRIP_INTERVAL_MINUTES) || 10;
+  const batchSize = parseInt(process.env.OLEADA_DRIP_BATCH_SIZE) || 10;
+
+  const [guard] = await db.query(
+    `UPDATE oleadas SET last_batch_sent_at = NOW()
+     WHERE id = ? AND status = 'active' AND send_mode = 'drip'
+       AND (last_batch_sent_at IS NULL OR last_batch_sent_at <= DATE_SUB(NOW(), INTERVAL ? MINUTE))`,
+    [oleadaId, intervalMinutes]
+  );
+  if (guard.affectedRows === 0) {
+    return { skipped: true, reason: 'not_due_or_not_active_drip' };
+  }
+
+  const [[oleada]] = await db.query('SELECT * FROM oleadas WHERE id = ?', [oleadaId]);
+  return dispatchPendingBatch(oleada, batchSize);
+}
+
+module.exports = { sendNextBatch, sendDripBatch, todayInTZ, isWithinBusinessHours };
