@@ -1,7 +1,7 @@
 const db = require('../config/database');
 const { resolveNpnTemplate } = require('../services/cartaDispatchService');
 const { parseRecipientsFile } = require('../services/oleadaFileParser');
-const { sendNextBatch } = require('../services/oleadaBatchService');
+const { sendNextBatch, sendDripBatch } = require('../services/oleadaBatchService');
 
 function ownerClause(req, alias = 'o') {
   if (req.user.role === 'admin' || req.user.isApiKey) return { clause: '', params: [] };
@@ -52,6 +52,14 @@ async function createOleada(req, res, next) {
         [oleadaId, r.name, r.email, r.phone]
       );
     }
+
+    // Modo por defecto de la oleada es 'drip' (columna DEFAULT en BD): dispara el primer
+    // lote de inmediato sin bloquear la respuesta HTTP (el envío de 10 correos puede
+    // tardar ~30s por los delays anti-saturación de SMTP). El scheduler retoma cada
+    // OLEADA_DRIP_INTERVAL_MINUTES a partir de este primer envío.
+    sendDripBatch(oleadaId).catch((err) => {
+      console.error(`[oleada ${oleadaId}] Error en envío inmediato:`, err.message);
+    });
 
     res.status(201).json({
       oleada: { id: oleadaId, name: name.trim(), npnName: npnName.trim(), sendChannel, dailyLimit: limit, totalRecipients: valid.length },
@@ -181,10 +189,12 @@ async function sendOleadaNow(req, res, next) {
   try {
     const { id } = req.params;
     const { clause: ownerFilter, params: ownerParams } = ownerClause(req);
-    const [rows] = await db.query(`SELECT id FROM oleadas o WHERE o.id = ? ${ownerFilter}`, [id, ...ownerParams]);
+    const [rows] = await db.query(`SELECT id, send_mode FROM oleadas o WHERE o.id = ? ${ownerFilter}`, [id, ...ownerParams]);
     if (!rows.length) return res.status(404).json({ error: 'No encontrado' });
 
-    const result = await sendNextBatch(parseInt(id));
+    const result = rows[0].send_mode === 'drip'
+      ? await sendDripBatch(parseInt(id))
+      : await sendNextBatch(parseInt(id));
     res.json(result);
   } catch (err) {
     next(err);
