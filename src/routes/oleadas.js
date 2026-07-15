@@ -6,7 +6,7 @@ const auth = require('../middleware/auth');
 const apiKeyOrAuth = require('../middleware/apiKeyOrAuth');
 const requireRole = require('../middleware/requireRole');
 const {
-  createOleada, listOleadas, getOleadaDetail, listOleadaRecipients,
+  createOleada, listOleadas, getDailyUsage, getOleadaDetail, listOleadaRecipients,
   sendOleadaNow, retryFailedRecipients, deleteFailedRecipients, pauseOleada, resumeOleada, cancelOleada,
 } = require('../controllers/oleadaController');
 
@@ -26,6 +26,7 @@ const requireCorreoAccess = requireRole('agent', 'correo_datos');
 router.post('/', auth, requireCorreoAccess, upload.single('file'), createOleada);
 
 // Named sub-routes MUST come before /:id
+router.get('/daily-usage', auth, requireCorreoAccess, getDailyUsage);
 router.post('/:id/send-now', apiKeyOrAuth, requireCorreoAccess, sendOleadaNow);
 router.patch('/:id/retry-failed', auth, requireCorreoAccess, retryFailedRecipients);
 router.delete('/:id/failed', auth, requireCorreoAccess, deleteFailedRecipients);

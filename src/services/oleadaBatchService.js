@@ -21,6 +21,42 @@ function isWithinBusinessHours(tz) {
   return now >= start && now < end;
 }
 
+// Medianoche de "hoy" (en tz) expresada en UTC, y el instante correspondiente 24h después.
+// Colombia no tiene horario de verano — offset fijo -05:00, igual que el resto del manejo
+// de fechas de Oleadas (ver todayInTZ/timeOfDayInTZ arriba).
+function dayBoundsUTC(tz) {
+  const start = new Date(`${todayInTZ(tz)}T00:00:00-05:00`);
+  const end = new Date(start.getTime() + 24 * 60 * 60 * 1000);
+  return { start, end };
+}
+
+// Cupo diario AUTOIMPUESTO de envíos de email del módulo NPN (Oleadas + Cartas), para
+// frenar antes de arriesgarse al cupo real (invisible) de Gmail/Workspace. No es el límite
+// real de Google — es un tope propio, configurable, pensado para quedar cómodamente por
+// debajo de donde Gmail empieza a rechazar (550 5.4.5). Cuenta envíos de email exitosos
+// (status != 'failed') del día calendario actual en OLEADA_CRON_TIMEZONE, sin importar de
+// qué oleada vengan — el cupo real de Gmail es por cuenta (SMTP_USER), no por oleada.
+async function getDailyEmailUsage() {
+  const tz = process.env.OLEADA_CRON_TIMEZONE || 'America/Bogota';
+  const cap = parseInt(process.env.OLEADA_DAILY_EMAIL_CAP) || 40;
+  const { start, end } = dayBoundsUTC(tz);
+
+  const [[{ sentToday }]] = await db.query(
+    `SELECT COUNT(*) AS sentToday FROM signature_requests
+     WHERE npn_name IS NOT NULL AND send_channel IN ('email', 'both')
+       AND status != 'failed' AND sent_at >= ? AND sent_at < ?`,
+    [start, end]
+  );
+
+  return {
+    sentToday,
+    cap,
+    remaining: Math.max(cap - sentToday, 0),
+    capReached: sentToday >= cap,
+    resetsAt: end.toISOString(),
+  };
+}
+
 // Gmail/Workspace corta el envío devolviendo 550 5.4.5 cuando la cuenta remitente
 // (SMTP_USER) agota su cupo diario de envíos salientes. No es un fallo del destinatario:
 // todo intento posterior en el mismo día va a fallar igual, así que hay que dejar de
@@ -33,6 +69,13 @@ function isQuotaExceededError(err) {
 // Envía hasta `limit` destinatarios pending de la oleada. Común a modo 'daily' y 'drip' —
 // el guard de cuándo se puede llamar vive en cada modo, no aquí.
 async function dispatchPendingBatch(oleada, limit) {
+  const usage = await getDailyEmailUsage();
+  if (usage.capReached) {
+    return { skipped: true, reason: 'daily_cap_reached', ...usage };
+  }
+  // No mandar más de lo que queda de cupo hoy, aunque el lote pedido sea más grande.
+  const effectiveLimit = Math.min(limit, usage.remaining);
+
   let template;
   try {
     template = await resolveNpnTemplate(oleada.npn_name);
@@ -45,7 +88,7 @@ async function dispatchPendingBatch(oleada, limit) {
   const [pending] = await db.query(
     `SELECT * FROM oleada_recipients WHERE oleada_id = ? AND row_status = 'pending'
      ORDER BY id ASC LIMIT ?`,
-    [oleada.id, limit]
+    [oleada.id, effectiveLimit]
   );
 
   if (pending.length === 0) {
@@ -163,4 +206,4 @@ async function sendDripBatch(oleadaId) {
   return dispatchPendingBatch(oleada, batchSize);
 }
 
-module.exports = { sendNextBatch, sendDripBatch, todayInTZ, isWithinBusinessHours };
+module.exports = { sendNextBatch, sendDripBatch, todayInTZ, isWithinBusinessHours, getDailyEmailUsage };
