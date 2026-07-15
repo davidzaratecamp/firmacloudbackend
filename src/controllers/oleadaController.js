@@ -203,8 +203,13 @@ async function sendOleadaNow(req, res, next) {
 }
 
 // Vuelve a 'pending' los destinatarios que quedaron 'failed' (p.ej. por cupo diario de
-// Gmail agotado) para que el próximo lote (drip/daily) los reintente. No cambia el status
-// de la oleada — si quedó 'paused' por cupo agotado, el usuario la reanuda aparte.
+// Gmail agotado) para que el próximo lote (drip/daily) los reintente. También reactiva la
+// oleada si hacía falta: pudo quedar 'paused' (freno automático de cupo) o incluso
+// 'completed' (si el lote que falló agotó todos los pendientes) — en cualquiera de los dos
+// casos el cron/scheduler ignora la oleada mientras no esté 'active', así que sin esto los
+// destinatarios reenganchados se quedan en 'pending' para siempre sin que nadie los procese.
+// En modo 'daily' también se limpia el guard de "ya enviado hoy" para permitir el reintento
+// inmediato en vez de esperar al cron de mañana.
 async function retryFailedRecipients(req, res, next) {
   try {
     const { id } = req.params;
@@ -217,6 +222,14 @@ async function retryFailedRecipients(req, res, next) {
        WHERE oleada_id = ? AND row_status = 'failed'`,
       [id]
     );
+
+    if (result.affectedRows > 0) {
+      await db.query(
+        `UPDATE oleadas SET status = 'active', last_batch_sent_date = NULL WHERE id = ?`,
+        [id]
+      );
+    }
+
     res.json({ ok: true, requeued: result.affectedRows });
   } catch (err) {
     next(err);
