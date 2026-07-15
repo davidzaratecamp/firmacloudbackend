@@ -2,7 +2,7 @@ const fs = require('fs').promises;
 const db = require('../config/database');
 const { resolveNpnTemplate } = require('../services/cartaDispatchService');
 const { parseRecipientsFile } = require('../services/oleadaFileParser');
-const { sendNextBatch, sendDripBatch } = require('../services/oleadaBatchService');
+const { sendNextBatch, sendDripBatch, getDailyEmailUsage } = require('../services/oleadaBatchService');
 
 function ownerClause(req, alias = 'o') {
   if (req.user.role === 'admin' || req.user.isApiKey) return { clause: '', params: [] };
@@ -67,6 +67,14 @@ async function createOleada(req, res, next) {
       validRows: valid.length,
       invalidRows: invalid,
     });
+  } catch (err) {
+    next(err);
+  }
+}
+
+async function getDailyUsage(req, res, next) {
+  try {
+    res.json(await getDailyEmailUsage());
   } catch (err) {
     next(err);
   }
@@ -324,6 +332,7 @@ function setOleadaStatus(newStatus) {
 module.exports = {
   createOleada,
   listOleadas,
+  getDailyUsage,
   getOleadaDetail,
   listOleadaRecipients,
   sendOleadaNow,
