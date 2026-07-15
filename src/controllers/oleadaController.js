@@ -223,12 +223,11 @@ async function retryFailedRecipients(req, res, next) {
   }
 }
 
-// Borra los destinatarios 'failed' de la oleada. También limpia la carta huérfana que haya
-// quedado en signature_requests para cada uno (bug ya corregido en cartaDispatchService, pero
-// esto limpia lo que se generó antes del fix): se creaba la carta antes de intentar el envío
-// y, si el email fallaba, no había cleanup — quedaba 'pending' sin que el cliente la recibiera.
-// No hay FK guardada para esas huérfanas (signature_request_id solo se setea si el envío tuvo
-// éxito), así que se correlacionan por email + npn_name + agente, filtrando solo status='pending'.
+// Borra los destinatarios 'failed' de la oleada y la carta ligada a cada uno en
+// signature_requests (marcada 'failed' por cartaDispatchService desde este fix — se
+// enlaza directo por signature_request_id, sin adivinar). Para fallidos de ANTES de este
+// fix, que no quedaron enlazados, se hace un respaldo correlacionando por email + npn_name
+// + agente (cubre tanto el 'failed' nuevo sin enlazar como el viejo 'pending' huérfano).
 async function deleteFailedRecipients(req, res, next) {
   try {
     const { id } = req.params;
@@ -238,27 +237,38 @@ async function deleteFailedRecipients(req, res, next) {
     const oleada = rows[0];
 
     const [failedRecipients] = await db.query(
-      `SELECT id, email FROM oleada_recipients WHERE oleada_id = ? AND row_status = 'failed'`,
+      `SELECT id, email, signature_request_id FROM oleada_recipients WHERE oleada_id = ? AND row_status = 'failed'`,
       [id]
     );
-    if (!failedRecipients.length) return res.json({ ok: true, deletedRecipients: 0, deletedOrphanCartas: 0 });
+    if (!failedRecipients.length) return res.json({ ok: true, deletedRecipients: 0, deletedCartas: 0 });
 
-    const emails = [...new Set(failedRecipients.map(r => r.email).filter(Boolean))];
+    const linkedCartaIds = failedRecipients.map(r => r.signature_request_id).filter(Boolean);
+    const unlinkedEmails = [...new Set(
+      failedRecipients.filter(r => !r.signature_request_id).map(r => r.email).filter(Boolean)
+    )];
 
-    let deletedOrphanCartas = 0;
-    if (emails.length) {
-      const [orphanCartas] = await db.query(
-        `SELECT id, document_original_path FROM signature_requests
-         WHERE npn_name = ? AND agent_id = ? AND status = 'pending' AND client_email IN (?)`,
-        [oleada.npn_name, oleada.created_by, emails]
+    let cartaIds = [...linkedCartaIds];
+    if (unlinkedEmails.length) {
+      const [legacyCartas] = await db.query(
+        `SELECT id FROM signature_requests
+         WHERE npn_name = ? AND agent_id = ? AND status IN ('pending', 'failed') AND client_email IN (?)`,
+        [oleada.npn_name, oleada.created_by, unlinkedEmails]
       );
-      if (orphanCartas.length) {
-        await db.query(`DELETE FROM signature_requests WHERE id IN (?)`, [orphanCartas.map(c => c.id)]);
-        for (const c of orphanCartas) {
-          if (c.document_original_path) await fs.unlink(c.document_original_path).catch(() => {});
-        }
-        deletedOrphanCartas = orphanCartas.length;
+      cartaIds.push(...legacyCartas.map(c => c.id));
+    }
+    cartaIds = [...new Set(cartaIds)];
+
+    let deletedCartas = 0;
+    if (cartaIds.length) {
+      const [cartas] = await db.query(
+        `SELECT id, document_original_path FROM signature_requests WHERE id IN (?)`,
+        [cartaIds]
+      );
+      await db.query(`DELETE FROM signature_requests WHERE id IN (?)`, [cartaIds]);
+      for (const c of cartas) {
+        if (c.document_original_path) await fs.unlink(c.document_original_path).catch(() => {});
       }
+      deletedCartas = cartas.length;
     }
 
     const [delResult] = await db.query(
@@ -271,7 +281,7 @@ async function deleteFailedRecipients(req, res, next) {
       [delResult.affectedRows, delResult.affectedRows, id]
     );
 
-    res.json({ ok: true, deletedRecipients: delResult.affectedRows, deletedOrphanCartas });
+    res.json({ ok: true, deletedRecipients: delResult.affectedRows, deletedCartas });
   } catch (err) {
     next(err);
   }

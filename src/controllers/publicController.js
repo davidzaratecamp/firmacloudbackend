@@ -60,6 +60,7 @@ async function getSigningPage(req, res, next) {
     }
     if (sig.status === 'signed') return res.status(409).json({ error: 'Este documento ya fue firmado' });
     if (sig.status === 'expired') return res.status(410).json({ error: 'Este enlace ha expirado' });
+    if (sig.status === 'failed') return res.status(404).json({ error: 'Enlace no válido' });
 
     res.json({ id: sig.id, documentName: sig.document_name, clientName: sig.client_name, status: sig.status });
   } catch (err) {
@@ -100,7 +101,7 @@ async function getDocumentForSigning(req, res, next) {
     if (!rows.length) return res.status(404).json({ error: 'No encontrado' });
 
     const sig = rows[0];
-    if (sig.status === 'signed' || sig.status === 'expired') {
+    if (sig.status === 'signed' || sig.status === 'expired' || sig.status === 'failed') {
       return res.status(410).json({ error: 'Enlace no disponible' });
     }
 
@@ -146,6 +147,7 @@ async function submitSignature(req, res, next) {
     const sig = rows[0];
     if (sig.status === 'signed') return res.status(409).json({ error: 'Ya firmado' });
     if (sig.status === 'expired') return res.status(410).json({ error: 'Expirado' });
+    if (sig.status === 'failed') return res.status(410).json({ error: 'Enlace no disponible' });
     if (!sig.npn_name && new Date() > new Date(sig.token_expires_at)) {
       await db.query("UPDATE signature_requests SET status = 'expired' WHERE id = ?", [sig.id]);
       if (sig.webhook_url) triggerWebhook(sig.webhook_url, { ...buildWebhookBase(sig), event: 'document.expired', expiredAt: new Date().toISOString() });

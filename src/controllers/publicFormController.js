@@ -27,7 +27,7 @@ async function validateFormToken(req, res, next) {
     const { token } = req.params;
     const record = await findValidCarta(token);
 
-    if (!record) return res.status(404).json({ error: 'Enlace no válido' });
+    if (!record || record.status === 'failed') return res.status(404).json({ error: 'Enlace no válido' });
     if (record.status === 'signed') return res.status(409).json({ error: 'Este documento ya fue firmado' });
 
     // El cliente llegó a la página del formulario = abrió el correo y vio el comunicado.
@@ -51,7 +51,7 @@ async function submitForm(req, res, next) {
     const body = req.body || {};
 
     const record = await findValidCarta(token);
-    if (!record) return res.status(404).json({ error: 'Enlace no válido' });
+    if (!record || record.status === 'failed') return res.status(404).json({ error: 'Enlace no válido' });
     if (record.status === 'signed') return res.status(409).json({ error: 'Este documento ya fue firmado' });
 
     const required = ['name', 'phone', 'email', 'postalcode'];

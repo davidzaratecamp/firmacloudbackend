@@ -214,4 +214,33 @@ async function downloadSignedCarta(req, res, next) {
   }
 }
 
-module.exports = { sendCarta, listCartas, exportCartas, getCartaDetail, downloadSignedCarta };
+// Solo permite borrar cartas cuyo envío falló (status='failed') — nunca llegaron al
+// cliente, así que no hay historial real que perder. Cartas pending/viewed/signed/expired
+// no se pueden borrar por acá (evita perder registros de envíos que sí ocurrieron).
+async function deleteCarta(req, res, next) {
+  try {
+    const { id } = req.params;
+    const ownerFilter = (req.user.role !== 'admin' && !req.user.isApiKey) ? 'AND sr.agent_id = ?' : '';
+    const params = (req.user.role !== 'admin' && !req.user.isApiKey) ? [id, req.user.id] : [id];
+
+    const [rows] = await db.query(
+      `SELECT sr.id, sr.status, sr.document_original_path
+       FROM signature_requests sr
+       WHERE sr.id = ? AND sr.npn_name IS NOT NULL ${ownerFilter}`,
+      params
+    );
+    if (!rows.length) return res.status(404).json({ error: 'No encontrado' });
+    const sig = rows[0];
+    if (sig.status !== 'failed')
+      return res.status(400).json({ error: 'Solo se pueden eliminar cartas con envío fallido' });
+
+    await db.query('DELETE FROM signature_requests WHERE id = ?', [id]);
+    if (sig.document_original_path) await fs.unlink(sig.document_original_path).catch(() => {});
+
+    res.json({ ok: true });
+  } catch (err) {
+    next(err);
+  }
+}
+
+module.exports = { sendCarta, listCartas, exportCartas, getCartaDetail, downloadSignedCarta, deleteCarta };
