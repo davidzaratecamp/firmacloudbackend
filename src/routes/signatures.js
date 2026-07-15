@@ -4,6 +4,7 @@ const path = require('path');
 const multer = require('multer');
 const auth = require('../middleware/auth');
 const apiKeyOrAuth = require('../middleware/apiKeyOrAuth');
+const requireRole = require('../middleware/requireRole');
 const { sendDocument, sendDocumentWithData, listSignatures, getSignature, downloadSignedDocument, downloadCertificate, replaceSignedDocument, getDashboardStats, deleteSignature } = require('../controllers/signatureController');
 
 const uploadPdf = multer({
@@ -12,18 +13,21 @@ const uploadPdf = multer({
   fileFilter: (req, file, cb) => cb(null, path.extname(file.originalname).toLowerCase() === '.pdf'),
 });
 
-router.post('/send', apiKeyOrAuth, sendDocument);
-router.post('/send-with-data', apiKeyOrAuth, sendDocumentWithData);
+// Módulo original de firma/tratamiento de datos — solo 'agent' (legado) o 'firma_datos' (admin siempre pasa)
+const requireFirmaAccess = requireRole('agent', 'firma_datos');
+
+router.post('/send', apiKeyOrAuth, requireFirmaAccess, sendDocument);
+router.post('/send-with-data', apiKeyOrAuth, requireFirmaAccess, sendDocumentWithData);
 
 // Specific named routes MUST come before /:id to avoid being swallowed by the param matcher
-router.get('/dashboard', auth, getDashboardStats);
-router.get('/', auth, listSignatures);
+router.get('/dashboard', auth, requireFirmaAccess, getDashboardStats);
+router.get('/', auth, requireFirmaAccess, listSignatures);
 
 // Param routes — accept JWT or X-Api-Key (intranet integration)
-router.get('/:id/download', apiKeyOrAuth, downloadSignedDocument);
-router.get('/:id/certificate', apiKeyOrAuth, downloadCertificate);
-router.put('/:id/replace-signed', auth, uploadPdf.single('file'), replaceSignedDocument);
-router.get('/:id', apiKeyOrAuth, getSignature);
-router.delete('/:id', auth, deleteSignature);
+router.get('/:id/download', apiKeyOrAuth, requireFirmaAccess, downloadSignedDocument);
+router.get('/:id/certificate', apiKeyOrAuth, requireFirmaAccess, downloadCertificate);
+router.put('/:id/replace-signed', auth, requireFirmaAccess, uploadPdf.single('file'), replaceSignedDocument);
+router.get('/:id', apiKeyOrAuth, requireFirmaAccess, getSignature);
+router.delete('/:id', auth, requireFirmaAccess, deleteSignature);
 
 module.exports = router;

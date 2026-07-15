@@ -13,6 +13,7 @@ const cartasRoutes = require('./routes/cartas');
 const publicFormRoutes = require('./routes/publicForm');
 const trackingRoutes = require('./routes/tracking');
 const oleadasRoutes = require('./routes/oleadas');
+const agentsRoutes = require('./routes/agents');
 const errorHandler = require('./middleware/errorHandler');
 
 const app = express();
@@ -52,6 +53,7 @@ app.use('/api/cartas', cartasRoutes);
 app.use('/api/formulario', publicFormRoutes);
 app.use('/api/tracking', trackingRoutes);
 app.use('/api/oleadas', oleadasRoutes);
+app.use('/api/agents', agentsRoutes);
 
 app.get('/api/health', (req, res) => res.json({ status: 'ok', timestamp: new Date().toISOString() }));
 
