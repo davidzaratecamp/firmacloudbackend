@@ -1,3 +1,4 @@
+const fs = require('fs').promises;
 const db = require('../config/database');
 const { resolveNpnTemplate } = require('../services/cartaDispatchService');
 const { parseRecipientsFile } = require('../services/oleadaFileParser');
@@ -222,6 +223,60 @@ async function retryFailedRecipients(req, res, next) {
   }
 }
 
+// Borra los destinatarios 'failed' de la oleada. También limpia la carta huérfana que haya
+// quedado en signature_requests para cada uno (bug ya corregido en cartaDispatchService, pero
+// esto limpia lo que se generó antes del fix): se creaba la carta antes de intentar el envío
+// y, si el email fallaba, no había cleanup — quedaba 'pending' sin que el cliente la recibiera.
+// No hay FK guardada para esas huérfanas (signature_request_id solo se setea si el envío tuvo
+// éxito), así que se correlacionan por email + npn_name + agente, filtrando solo status='pending'.
+async function deleteFailedRecipients(req, res, next) {
+  try {
+    const { id } = req.params;
+    const { clause: ownerFilter, params: ownerParams } = ownerClause(req);
+    const [rows] = await db.query(`SELECT o.id, o.npn_name, o.created_by FROM oleadas o WHERE o.id = ? ${ownerFilter}`, [id, ...ownerParams]);
+    if (!rows.length) return res.status(404).json({ error: 'No encontrado' });
+    const oleada = rows[0];
+
+    const [failedRecipients] = await db.query(
+      `SELECT id, email FROM oleada_recipients WHERE oleada_id = ? AND row_status = 'failed'`,
+      [id]
+    );
+    if (!failedRecipients.length) return res.json({ ok: true, deletedRecipients: 0, deletedOrphanCartas: 0 });
+
+    const emails = [...new Set(failedRecipients.map(r => r.email).filter(Boolean))];
+
+    let deletedOrphanCartas = 0;
+    if (emails.length) {
+      const [orphanCartas] = await db.query(
+        `SELECT id, document_original_path FROM signature_requests
+         WHERE npn_name = ? AND agent_id = ? AND status = 'pending' AND client_email IN (?)`,
+        [oleada.npn_name, oleada.created_by, emails]
+      );
+      if (orphanCartas.length) {
+        await db.query(`DELETE FROM signature_requests WHERE id IN (?)`, [orphanCartas.map(c => c.id)]);
+        for (const c of orphanCartas) {
+          if (c.document_original_path) await fs.unlink(c.document_original_path).catch(() => {});
+        }
+        deletedOrphanCartas = orphanCartas.length;
+      }
+    }
+
+    const [delResult] = await db.query(
+      `DELETE FROM oleada_recipients WHERE oleada_id = ? AND row_status = 'failed'`,
+      [id]
+    );
+
+    await db.query(
+      `UPDATE oleadas SET failed_count = GREATEST(failed_count - ?, 0), total_recipients = GREATEST(total_recipients - ?, 0) WHERE id = ?`,
+      [delResult.affectedRows, delResult.affectedRows, id]
+    );
+
+    res.json({ ok: true, deletedRecipients: delResult.affectedRows, deletedOrphanCartas });
+  } catch (err) {
+    next(err);
+  }
+}
+
 function setOleadaStatus(newStatus) {
   return async function (req, res, next) {
     try {
@@ -250,6 +305,7 @@ module.exports = {
   listOleadaRecipients,
   sendOleadaNow,
   retryFailedRecipients,
+  deleteFailedRecipients,
   pauseOleada: setOleadaStatus('paused'),
   resumeOleada: setOleadaStatus('active'),
   cancelOleada: setOleadaStatus('cancelled'),
