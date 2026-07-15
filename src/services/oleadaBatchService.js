@@ -78,9 +78,11 @@ async function dispatchPendingBatch(oleada, limit) {
       );
       sent++;
     } catch (err) {
+      // dispatchCartaToRecipient adjunta el id de la carta que quedó marcada 'failed' —
+      // se enlaza directo, sin tener que adivinar por email más adelante.
       await db.query(
-        `UPDATE oleada_recipients SET row_status = 'failed', send_error = ? WHERE id = ?`,
-        [String(err.message).slice(0, 500), recipient.id]
+        `UPDATE oleada_recipients SET row_status = 'failed', send_error = ?, signature_request_id = ? WHERE id = ?`,
+        [String(err.message).slice(0, 500), err.signatureRequestId || null, recipient.id]
       );
       failed++;
       if (isQuotaExceededError(err)) {

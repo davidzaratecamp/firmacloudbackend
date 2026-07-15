@@ -66,10 +66,12 @@ async function dispatchCartaToRecipient({
         npnName: npnName.trim(),
       });
     } catch (emailErr) {
-      // Si el email falla (p.ej. cupo diario de Gmail agotado) no dejar una carta
-      // "pendiente" huérfana en signature_requests — el cliente nunca la recibió.
-      await db.query('DELETE FROM signature_requests WHERE id = ?', [id]);
-      await fs.unlink(uploadPath).catch(() => {});
+      // Si el email falla (p.ej. cupo diario de Gmail agotado) marcar la carta como
+      // 'failed' en vez de dejarla 'pending' (engañoso, el cliente nunca la recibió)
+      // o borrarla (se perdía el historial de que se intentó). Se adjunta el id al
+      // error para que quien llama (oleadas) pueda enlazarlo sin adivinar por email.
+      await db.query("UPDATE signature_requests SET status = 'failed' WHERE id = ?", [id]);
+      emailErr.signatureRequestId = id;
       throw emailErr;
     }
   }
