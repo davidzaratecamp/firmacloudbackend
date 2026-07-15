@@ -7,7 +7,7 @@ const apiKeyOrAuth = require('../middleware/apiKeyOrAuth');
 const requireRole = require('../middleware/requireRole');
 const {
   createOleada, listOleadas, getOleadaDetail, listOleadaRecipients,
-  sendOleadaNow, retryFailedRecipients, pauseOleada, resumeOleada, cancelOleada,
+  sendOleadaNow, retryFailedRecipients, deleteFailedRecipients, pauseOleada, resumeOleada, cancelOleada,
 } = require('../controllers/oleadaController');
 
 const upload = multer({
@@ -28,6 +28,7 @@ router.post('/', auth, requireCorreoAccess, upload.single('file'), createOleada)
 // Named sub-routes MUST come before /:id
 router.post('/:id/send-now', apiKeyOrAuth, requireCorreoAccess, sendOleadaNow);
 router.patch('/:id/retry-failed', auth, requireCorreoAccess, retryFailedRecipients);
+router.delete('/:id/failed', auth, requireCorreoAccess, deleteFailedRecipients);
 router.patch('/:id/pause', auth, requireCorreoAccess, pauseOleada);
 router.patch('/:id/resume', auth, requireCorreoAccess, resumeOleada);
 router.patch('/:id/cancel', auth, requireCorreoAccess, cancelOleada);
