@@ -4,9 +4,10 @@ const multer = require('multer');
 const path = require('path');
 const auth = require('../middleware/auth');
 const apiKeyOrAuth = require('../middleware/apiKeyOrAuth');
+const requireRole = require('../middleware/requireRole');
 const {
   createOleada, listOleadas, getOleadaDetail, listOleadaRecipients,
-  sendOleadaNow, pauseOleada, resumeOleada, cancelOleada,
+  sendOleadaNow, retryFailedRecipients, pauseOleada, resumeOleada, cancelOleada,
 } = require('../controllers/oleadaController');
 
 const upload = multer({
@@ -19,16 +20,20 @@ const upload = multer({
   },
 });
 
-router.post('/', auth, upload.single('file'), createOleada);
+// Módulo NPN de actualización de datos — solo 'agent' (legado) o 'correo_datos' (admin siempre pasa)
+const requireCorreoAccess = requireRole('agent', 'correo_datos');
+
+router.post('/', auth, requireCorreoAccess, upload.single('file'), createOleada);
 
 // Named sub-routes MUST come before /:id
-router.post('/:id/send-now', apiKeyOrAuth, sendOleadaNow);
-router.patch('/:id/pause', auth, pauseOleada);
-router.patch('/:id/resume', auth, resumeOleada);
-router.patch('/:id/cancel', auth, cancelOleada);
-router.get('/:id/recipients', auth, listOleadaRecipients);
-router.get('/:id', auth, getOleadaDetail);
+router.post('/:id/send-now', apiKeyOrAuth, requireCorreoAccess, sendOleadaNow);
+router.patch('/:id/retry-failed', auth, requireCorreoAccess, retryFailedRecipients);
+router.patch('/:id/pause', auth, requireCorreoAccess, pauseOleada);
+router.patch('/:id/resume', auth, requireCorreoAccess, resumeOleada);
+router.patch('/:id/cancel', auth, requireCorreoAccess, cancelOleada);
+router.get('/:id/recipients', auth, requireCorreoAccess, listOleadaRecipients);
+router.get('/:id', auth, requireCorreoAccess, getOleadaDetail);
 
-router.get('/', auth, listOleadas);
+router.get('/', auth, requireCorreoAccess, listOleadas);
 
 module.exports = router;

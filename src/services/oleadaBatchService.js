@@ -21,6 +21,15 @@ function isWithinBusinessHours(tz) {
   return now >= start && now < end;
 }
 
+// Gmail/Workspace corta el envío devolviendo 550 5.4.5 cuando la cuenta remitente
+// (SMTP_USER) agota su cupo diario de envíos salientes. No es un fallo del destinatario:
+// todo intento posterior en el mismo día va a fallar igual, así que hay que dejar de
+// intentar en vez de quemar el resto de la lista contra un cupo agotado.
+function isQuotaExceededError(err) {
+  const text = `${err && err.responseCode || ''} ${err && err.response || ''} ${err && err.message || ''}`;
+  return /5\.4\.5|daily user sending limit|daily sending quota/i.test(text);
+}
+
 // Envía hasta `limit` destinatarios pending de la oleada. Común a modo 'daily' y 'drip' —
 // el guard de cuándo se puede llamar vive en cada modo, no aquí.
 async function dispatchPendingBatch(oleada, limit) {
@@ -47,6 +56,7 @@ async function dispatchPendingBatch(oleada, limit) {
   const delayMs = parseInt(process.env.OLEADA_SEND_DELAY_MS) || 3000;
   let sent = 0;
   let failed = 0;
+  let quotaExceeded = false;
 
   for (const recipient of pending) {
     try {
@@ -73,6 +83,11 @@ async function dispatchPendingBatch(oleada, limit) {
         [String(err.message).slice(0, 500), recipient.id]
       );
       failed++;
+      if (isQuotaExceededError(err)) {
+        quotaExceeded = true;
+        console.error(`[oleada ${oleada.id}] Cupo diario de envio agotado, pausando oleada:`, err.message);
+        break;
+      }
     }
     await sleep(delayMs);
   }
@@ -81,6 +96,11 @@ async function dispatchPendingBatch(oleada, limit) {
     `UPDATE oleadas SET sent_count = sent_count + ?, failed_count = failed_count + ? WHERE id = ?`,
     [sent, failed, oleada.id]
   );
+
+  if (quotaExceeded) {
+    await db.query(`UPDATE oleadas SET status = 'paused' WHERE id = ?`, [oleada.id]);
+    return { sent, failed, quotaExceeded: true, paused: true };
+  }
 
   const [[{ remaining }]] = await db.query(
     `SELECT COUNT(*) AS remaining FROM oleada_recipients WHERE oleada_id = ? AND row_status = 'pending'`,

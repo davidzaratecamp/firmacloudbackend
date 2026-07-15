@@ -201,6 +201,27 @@ async function sendOleadaNow(req, res, next) {
   }
 }
 
+// Vuelve a 'pending' los destinatarios que quedaron 'failed' (p.ej. por cupo diario de
+// Gmail agotado) para que el próximo lote (drip/daily) los reintente. No cambia el status
+// de la oleada — si quedó 'paused' por cupo agotado, el usuario la reanuda aparte.
+async function retryFailedRecipients(req, res, next) {
+  try {
+    const { id } = req.params;
+    const { clause: ownerFilter, params: ownerParams } = ownerClause(req);
+    const [rows] = await db.query(`SELECT id FROM oleadas o WHERE o.id = ? ${ownerFilter}`, [id, ...ownerParams]);
+    if (!rows.length) return res.status(404).json({ error: 'No encontrado' });
+
+    const [result] = await db.query(
+      `UPDATE oleada_recipients SET row_status = 'pending', send_error = NULL
+       WHERE oleada_id = ? AND row_status = 'failed'`,
+      [id]
+    );
+    res.json({ ok: true, requeued: result.affectedRows });
+  } catch (err) {
+    next(err);
+  }
+}
+
 function setOleadaStatus(newStatus) {
   return async function (req, res, next) {
     try {
@@ -228,6 +249,7 @@ module.exports = {
   getOleadaDetail,
   listOleadaRecipients,
   sendOleadaNow,
+  retryFailedRecipients,
   pauseOleada: setOleadaStatus('paused'),
   resumeOleada: setOleadaStatus('active'),
   cancelOleada: setOleadaStatus('cancelled'),
