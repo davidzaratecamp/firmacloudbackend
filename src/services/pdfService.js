@@ -34,6 +34,27 @@ function wrapText(text, maxWidth, font, fontSize) {
   return lines;
 }
 
+// Igual que wrapText, pero la primera línea comparte espacio con una etiqueta ya dibujada
+// (menos ancho disponible) y las líneas siguientes usan el ancho completo de la columna.
+function wrapValueAfterLabel(text, font, fontSize, firstLineWidth, restLineWidth) {
+  const words = text.split(' ');
+  const lines = [];
+  let current = '';
+  let widthLimit = firstLineWidth;
+  for (const word of words) {
+    const test = current ? `${current} ${word}` : word;
+    if (font.widthOfTextAtSize(test, fontSize) > widthLimit && current) {
+      lines.push(current);
+      current = word;
+      widthLimit = restLineWidth;
+    } else {
+      current = test;
+    }
+  }
+  if (current) lines.push(current);
+  return lines;
+}
+
 async function stampSignature(originalPdfPath, signatureDataUrl, signerInfo, signFieldOverride = null, signPageIndex = 0, extraSignLocations = []) {
   const SIGN_FIELD = resolveSignField(signFieldOverride);
 
@@ -542,6 +563,22 @@ async function fillContratoActivacion(documentData) {
     const X_BENE    = 280;   // columna derecha
     const Y_START   = 680;   // misma altura que "Nombres:" en columna izquierda
     const LINE_GAP  = 21;    // espaciado entre líneas (uniforme, sin gap extra entre beneficiarios)
+    const RIGHT_MARGIN = 20; // margen antes del borde derecho de la página
+    const COL_WIDTH = page3.getWidth() - X_BENE - RIGHT_MARGIN; // ancho disponible para valor, evita desborde
+
+    // Dibuja "label: valor" en (x, y); si el valor no cabe en el ancho de columna
+    // disponible, continúa en el/los renglón(es) de abajo. Devuelve la y siguiente a usar.
+    const drawWrappedField = (label, value) => {
+      const labelW = page3Font.widthOfTextAtSize(label, FONT_SIZE);
+      const lines = wrapValueAfterLabel(value, page3Font, FONT_SIZE, COL_WIDTH - labelW, COL_WIDTH);
+      page3.drawText(label, { x: X_BENE, y, size: FONT_SIZE, font: page3Font, color: beneficiaryLabelColor });
+      page3.drawText(lines[0] || '', { x: X_BENE + labelW, y, size: FONT_SIZE, font: page3Font, color: page3ValueColor });
+      y -= LINE_GAP;
+      for (let li = 1; li < lines.length; li++) {
+        page3.drawText(lines[li], { x: X_BENE, y, size: FONT_SIZE, font: page3Font, color: page3ValueColor });
+        y -= LINE_GAP;
+      }
+    };
 
     let y = Y_START;
 
@@ -549,29 +586,9 @@ async function fillContratoActivacion(documentData) {
       const b = beneficiarios[i];
       const nombre = [b.firstName, b.lastName].filter(Boolean).join(' ');
 
-      if (nombre) {
-        const labelBene = `Beneficiario ${i + 1}: `;
-        const labelW    = page3Font.widthOfTextAtSize(labelBene, FONT_SIZE);
-        page3.drawText(labelBene, { x: X_BENE, y, size: FONT_SIZE, font: page3Font, color: beneficiaryLabelColor });
-        page3.drawText(nombre,    { x: X_BENE + labelW, y, size: FONT_SIZE, font: page3Font, color: page3ValueColor });
-        y -= LINE_GAP;
-      }
-
-      if (b.migratoryStatus) {
-        const labelMig = 'Estatus migratorio: ';
-        const labelW   = page3Font.widthOfTextAtSize(labelMig, FONT_SIZE);
-        page3.drawText(labelMig,           { x: X_BENE, y, size: FONT_SIZE, font: page3Font, color: beneficiaryLabelColor });
-        page3.drawText(b.migratoryStatus,  { x: X_BENE + labelW, y, size: FONT_SIZE, font: page3Font, color: page3ValueColor });
-        y -= LINE_GAP;
-      }
-
-      if (b.enrollPolicy) {
-        const labelEnroll = 'Enrolla póliza: ';
-        const labelW      = page3Font.widthOfTextAtSize(labelEnroll, FONT_SIZE);
-        page3.drawText(labelEnroll,     { x: X_BENE, y, size: FONT_SIZE, font: page3Font, color: beneficiaryLabelColor });
-        page3.drawText(b.enrollPolicy,  { x: X_BENE + labelW, y, size: FONT_SIZE, font: page3Font, color: page3ValueColor });
-        y -= LINE_GAP;
-      }
+      if (nombre) drawWrappedField(`Beneficiario ${i + 1}: `, nombre);
+      if (b.migratoryStatus) drawWrappedField('Estatus migratorio: ', b.migratoryStatus);
+      if (b.enrollPolicy) drawWrappedField('Enrolla póliza: ', b.enrollPolicy);
     }
   }
 
