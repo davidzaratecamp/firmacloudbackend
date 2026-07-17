@@ -187,6 +187,41 @@ async function getCartaDetail(req, res, next) {
   }
 }
 
+const PHOTO_MIME_BY_EXT = {
+  '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg', '.png': 'image/png', '.webp': 'image/webp',
+};
+
+// Sirve las fotos del formulario (carnet de seguro social / estatus migratorio) solo a
+// quien pueda ver la carta (mismo ownerFilter que el resto de endpoints de este controller).
+async function getCartaPhoto(req, res, next) {
+  try {
+    const { id, type } = req.params;
+    if (!['social', 'status'].includes(type)) return res.status(400).json({ error: 'Tipo de foto inválido' });
+
+    const ownerFilter = (req.user.role !== 'admin' && !req.user.isApiKey) ? 'AND sr.agent_id = ?' : '';
+    const params = (req.user.role !== 'admin' && !req.user.isApiKey) ? [id, req.user.id] : [id];
+
+    const [rows] = await db.query(
+      `SELECT cfd.social_path, cfd.status_path
+       FROM signature_requests sr
+       JOIN carta_form_data cfd ON cfd.signature_request_id = sr.id
+       WHERE sr.id = ? AND sr.npn_name IS NOT NULL ${ownerFilter}`,
+      params
+    );
+
+    if (!rows.length) return res.status(404).json({ error: 'No encontrado' });
+    const filePath = type === 'social' ? rows[0].social_path : rows[0].status_path;
+    if (!filePath) return res.status(404).json({ error: 'Foto no disponible' });
+
+    const buffer = await fs.readFile(path.resolve(filePath));
+    const mime = PHOTO_MIME_BY_EXT[path.extname(filePath).toLowerCase()] || 'application/octet-stream';
+    res.setHeader('Content-Type', mime);
+    res.send(buffer);
+  } catch (err) {
+    next(err);
+  }
+}
+
 async function downloadSignedCarta(req, res, next) {
   try {
     const { id } = req.params;
@@ -243,4 +278,4 @@ async function deleteCarta(req, res, next) {
   }
 }
 
-module.exports = { sendCarta, listCartas, exportCartas, getCartaDetail, downloadSignedCarta, deleteCarta };
+module.exports = { sendCarta, listCartas, exportCartas, getCartaDetail, getCartaPhoto, downloadSignedCarta, deleteCarta };
