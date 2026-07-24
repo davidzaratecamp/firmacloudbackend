@@ -284,7 +284,6 @@ async function generateCertificate(sig, logs) {
 
     page.drawLine({ start: { x: M, y: 50 }, end: { x: W - M, y: 50 }, thickness: 0.5, color: rgb(0.8, 0.8, 0.8) });
     page.drawText('Este documento es un registro legal generado automáticamente por Health Care.', { x: M, y: 36, size: 8, font, color: rgb(0.5, 0.5, 0.5) });
-    page.drawText(`Generado el: ${fmtDate(new Date())}`, { x: M, y: 24, size: 8, font, color: rgb(0.5, 0.5, 0.5) });
   }
 
   // ===== PÁGINA 2: Resumen formal de eventos =====
@@ -360,7 +359,6 @@ async function generateCertificate(sig, logs) {
 
     page.drawLine({ start: { x: M, y: 50 }, end: { x: W - M, y: 50 }, thickness: 0.5, color: rgb(0.8, 0.8, 0.8) });
     page.drawText('Este documento es un registro legal generado automáticamente por Health Care.', { x: M, y: 36, size: 8, font, color: rgb(0.5, 0.5, 0.5) });
-    page.drawText(`Generado el: ${fmtDate(new Date())}`, { x: M, y: 24, size: 8, font, color: rgb(0.5, 0.5, 0.5) });
   }
 
   // ===== PÁGINAS 3+: ERSD =====

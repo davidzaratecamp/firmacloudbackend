@@ -1,7 +1,7 @@
 const bcrypt = require('bcryptjs');
 const db = require('../config/database');
 
-const VALID_ROLES = ['admin', 'agent', 'firma_datos', 'correo_datos'];
+const VALID_ROLES = ['admin', 'agent', 'firma_datos', 'correo_datos', 'rrhh'];
 
 async function listAgents(req, res, next) {
   try {
