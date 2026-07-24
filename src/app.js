@@ -14,6 +14,8 @@ const publicFormRoutes = require('./routes/publicForm');
 const trackingRoutes = require('./routes/tracking');
 const oleadasRoutes = require('./routes/oleadas');
 const agentsRoutes = require('./routes/agents');
+const hrContractsRoutes = require('./routes/hrContracts');
+const hrPublicRoutes = require('./routes/hrPublic');
 const errorHandler = require('./middleware/errorHandler');
 
 const app = express();
@@ -54,6 +56,8 @@ app.use('/api/formulario', publicFormRoutes);
 app.use('/api/tracking', trackingRoutes);
 app.use('/api/oleadas', oleadasRoutes);
 app.use('/api/agents', agentsRoutes);
+app.use('/api/rrhh/contratos', hrContractsRoutes);
+app.use('/api/rrhh-sign', hrPublicRoutes);
 
 app.get('/api/health', (req, res) => res.json({ status: 'ok', timestamp: new Date().toISOString() }));
 

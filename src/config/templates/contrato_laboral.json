@@ -1,0 +1,19 @@
+{
+  "_note": "Plantilla: ANEXOS Y CONTRATO DE TRABAJO.pdf (28 pags, 612x792). Firma sobre la linea encima de 'FIRMA TRABAJADOR'. Origen inferior-izquierdo (pdf-lib). 12 hojas con bloque de firma. IMPORTANTE: signLocations ya NO se usa en tiempo de ejecucion (se detecta automaticamente por documento via hrContractPdfService.detectSignLocations, robusto ante reflujo por nombres de empleado mas largos/cortos). Se deja como referencia historica de la calibracion original.",
+  "templateFile": "ANEXOS Y CONTRATO DE TRABAJO.pdf",
+  "expectedPages": 28,
+  "signLocations": [
+    { "page": 0,  "x": 331.6, "y": 250.4, "width": 150, "height": 34 },
+    { "page": 1,  "x": 352.9, "y": 218.2, "width": 150, "height": 34 },
+    { "page": 2,  "x": 308.9, "y": 105.2, "width": 150, "height": 34 },
+    { "page": 3,  "x": 337.3, "y": 200.7, "width": 150, "height": 34 },
+    { "page": 4,  "x": 306.8, "y": 110.4, "width": 150, "height": 34 },
+    { "page": 5,  "x": 284.0, "y": 127.3, "width": 150, "height": 34 },
+    { "page": 6,  "x": 56.6,  "y": 85.2,  "width": 150, "height": 34, "_note": "linea vectorial; y estimada, verificar" },
+    { "page": 7,  "x": 135.6, "y": 297.4, "width": 150, "height": 34 },
+    { "page": 8,  "x": 110.6, "y": 406.8, "width": 150, "height": 34 },
+    { "page": 23, "x": 362.1, "y": 401.8, "width": 150, "height": 34 },
+    { "page": 25, "x": 362.1, "y": 424.5, "width": 150, "height": 34 },
+    { "page": 27, "x": 362.1, "y": 247.8, "width": 150, "height": 34 }
+  ]
+}
