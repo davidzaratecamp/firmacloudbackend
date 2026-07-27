@@ -15,7 +15,7 @@ const SIGNED_DIR  = path.resolve(process.env.SIGNED_DIR  || path.join(__dirname,
 
 async function sendDocument(req, res, next) {
   try {
-    const { clientName, clientEmail, clientPhone, sendChannel = 'email', webhookUrl, agentName, agentCedula } = req.body;
+    const { clientName, clientEmail, clientPhone, sendChannel = 'email', webhookUrl, agentName, agentCedula, loggedAgentName, loggedAgentId } = req.body;
     if (!clientName) return res.status(400).json({ error: 'Nombre del cliente requerido' });
     if ((sendChannel === 'email' || sendChannel === 'both') && !clientEmail)
       return res.status(400).json({ error: 'Email requerido para envío por correo' });
@@ -49,9 +49,9 @@ async function sendDocument(req, res, next) {
 
     await db.query(
       `INSERT INTO signature_requests
-       (id, agent_id, document_name, document_original_path, document_hash, client_name, client_email, client_phone, send_channel, token, token_expires_at, agent_name_sent, agent_cedula, sent_from_ip, sent_from_location, webhook_url)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-      [id, req.user.id, docName, uploadPath, docHash, clientName, clientEmail || null, clientPhone || null, sendChannel, token, tokenExpiry, agentName || null, agentCedula || null, serverLoc?.ip || null, serverLoc?.location || null, webhookUrl || null]
+       (id, agent_id, document_name, document_original_path, document_hash, client_name, client_email, client_phone, send_channel, token, token_expires_at, agent_name_sent, agent_cedula, logged_agent_name, logged_agent_id, sent_from_ip, sent_from_location, webhook_url)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      [id, req.user.id, docName, uploadPath, docHash, clientName, clientEmail || null, clientPhone || null, sendChannel, token, tokenExpiry, agentName || null, agentCedula || null, loggedAgentName || null, loggedAgentId || null, serverLoc?.ip || null, serverLoc?.location || null, webhookUrl || null]
     );
 
     await db.query(
@@ -104,7 +104,8 @@ async function listSignatures(req, res, next) {
 
     const [rows] = await db.query(
       `SELECT sr.id, sr.document_name, sr.client_name, sr.client_email, sr.status,
-              sr.sent_at, sr.viewed_at, sr.signed_at, a.name AS agent_name
+              sr.sent_at, sr.viewed_at, sr.signed_at, a.name AS agent_name,
+              sr.agent_name_sent, sr.agent_cedula, sr.logged_agent_name, sr.logged_agent_id
        FROM signature_requests sr
        JOIN agents a ON sr.agent_id = a.id
        WHERE ${where}
@@ -310,6 +311,7 @@ async function sendDocumentWithData(req, res, next) {
       clientName, clientEmail, clientPhone,
       sendChannel = 'email',
       webhookUrl, agentName, agentCedula,
+      loggedAgentName, loggedAgentId,
       ventaId,
       documentData,
     } = req.body;
@@ -354,13 +356,14 @@ async function sendDocumentWithData(req, res, next) {
       `INSERT INTO signature_requests
        (id, agent_id, document_name, document_original_path, document_hash,
         client_name, client_email, client_phone, send_channel, token, token_expires_at,
-        agent_name_sent, agent_cedula, sent_from_ip, sent_from_location, webhook_url,
+        agent_name_sent, agent_cedula, logged_agent_name, logged_agent_id,
+        sent_from_ip, sent_from_location, webhook_url,
         document_data, sign_page_index)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       [
         id, req.user.id, docName, uploadPath, docHash,
         clientName, clientEmail || null, clientPhone || null, sendChannel, token, tokenExpiry,
-        agentName || null, agentCedula || null,
+        agentName || null, agentCedula || null, loggedAgentName || null, loggedAgentId || null,
         serverLoc?.ip || null, serverLoc?.location || null,
         webhookUrl || null,
         JSON.stringify({ ...documentData, _ventaId: ventaId || null }),
