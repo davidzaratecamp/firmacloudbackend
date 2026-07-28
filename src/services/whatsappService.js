@@ -12,42 +12,56 @@ async function sendSignatureWhatsApp({ clientName, clientPhone, token, documentN
   const publicBase = process.env.PUBLIC_APP_URL || process.env.APP_URL;
   const signingUrl = `${publicBase}/firmar/${token}`;
   const phone = normalizePhone(clientPhone);
+  const lang = process.env.WHATSAPP_TEMPLATE_LANG || 'es';
 
-  const response = await fetch(
-    `https://graph.facebook.com/v25.0/${process.env.WHATSAPP_PHONE_NUMBER_ID}/messages`,
-    {
-      method: 'POST',
-      headers: {
-        'Authorization': `Bearer ${process.env.WHATSAPP_ACCESS_TOKEN}`,
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({
-        messaging_product: 'whatsapp',
-        to: phone,
-        type: 'template',
-        template: {
-          name: process.env.WHATSAPP_TEMPLATE_NAME || 'firma_documento',
-          language: { code: process.env.WHATSAPP_TEMPLATE_LANG || 'es' },
-          components: [
-            {
-              type: 'body',
-              parameters: [
-                { type: 'text', text: clientName },
-                { type: 'text', text: signingUrl },
-              ],
-            },
-          ],
+  const primaryTemplate  = process.env.WHATSAPP_TEMPLATE_NAME || 'firma_documento';
+  const fallbackTemplate = process.env.WHATSAPP_TEMPLATE_NAME_V2 || 'firma_documento_v2'; // template con 2 params (nombre, url)
+
+  async function trySend(templateName, bodyParams) {
+    const res = await fetch(
+      `https://graph.facebook.com/v25.0/${process.env.WHATSAPP_PHONE_NUMBER_ID}/messages`,
+      {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${process.env.WHATSAPP_ACCESS_TOKEN}`,
+          'Content-Type': 'application/json',
         },
-      }),
-    }
-  );
-
-  if (!response.ok) {
-    const err = await response.json();
-    throw new Error(`WhatsApp API error: ${err.error?.message || JSON.stringify(err)}`);
+        body: JSON.stringify({
+          messaging_product: 'whatsapp',
+          to: phone,
+          type: 'template',
+          template: {
+            name: templateName,
+            language: { code: lang },
+            components: [{ type: 'body', parameters: bodyParams }],
+          },
+        }),
+      }
+    );
+    const data = await res.json();
+    if (data.error?.code === 132001 || data.error?.code === 132000) return null;
+    if (data.error) throw new Error(`WhatsApp API error: ${data.error.message}`);
+    return data;
   }
 
-  return response.json();
+  // 1. Template principal: nombre + documento + URL (3 params)
+  let result = await trySend(primaryTemplate, [
+    { type: 'text', text: clientName },
+    { type: 'text', text: documentName },
+    { type: 'text', text: signingUrl },
+  ]);
+
+  // 2. Fallback 2 params: nombre + URL
+  if (!result) {
+    console.warn(`[whatsapp-firma] Template "${primaryTemplate}" (3 params) no disponible, usando fallback "${fallbackTemplate}"`);
+    result = await trySend(fallbackTemplate, [
+      { type: 'text', text: clientName },
+      { type: 'text', text: signingUrl },
+    ]);
+  }
+
+  if (!result) throw new Error('Ningún template de WhatsApp disponible para la firma');
+  return result;
 }
 
 async function sendFormWhatsApp({ clientName, clientPhone, token, npnName }) {
