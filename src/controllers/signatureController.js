@@ -196,9 +196,15 @@ async function downloadCertificate(req, res, next) {
     );
     if (!rows.length) return res.status(404).json({ error: 'No encontrado' });
 
-    const [logs] = await db.query('SELECT * FROM activity_logs WHERE signature_request_id = ? ORDER BY created_at ASC', [id]);
+    const sig = rows[0];
 
-    const certBuffer = await generateCertificate(rows[0], logs);
+    let certBuffer;
+    if (sig.certificate_path) {
+      certBuffer = await fs.readFile(path.resolve(sig.certificate_path));
+    } else {
+      const [logs] = await db.query('SELECT * FROM activity_logs WHERE signature_request_id = ? ORDER BY created_at ASC', [id]);
+      certBuffer = await generateCertificate(sig, logs);
+    }
 
     res.setHeader('Content-Type', 'application/pdf');
     res.setHeader('Content-Disposition', `attachment; filename="sumarium-${id}.pdf"`);
@@ -240,6 +246,43 @@ async function replaceSignedDocument(req, res, next) {
     );
 
     res.json({ ok: true, message: 'PDF firmado reemplazado correctamente' });
+  } catch (err) {
+    next(err);
+  }
+}
+
+async function replaceCertificate(req, res, next) {
+  try {
+    const { id } = req.params;
+    if (!req.file) return res.status(400).json({ error: 'Archivo PDF requerido' });
+    if (path.extname(req.file.originalname).toLowerCase() !== '.pdf') {
+      return res.status(400).json({ error: 'El archivo debe ser un PDF' });
+    }
+
+    const ownerFilter = req.user.role !== 'admin' ? 'AND agent_id = ?' : '';
+    const params = req.user.role !== 'admin' ? [id, req.user.id] : [id];
+    const [rows] = await db.query(`SELECT * FROM signature_requests WHERE id = ? ${ownerFilter}`, params);
+    if (!rows.length) return res.status(404).json({ error: 'No encontrado' });
+
+    const sig = rows[0];
+    if (sig.status !== 'signed' || !sig.signed_document_path) {
+      return res.status(400).json({ error: 'Solo se puede reemplazar el sumario de una firma ya completada' });
+    }
+
+    const safeName = path.basename(req.file.originalname).replace(/[^a-zA-Z0-9._-]/g, '_');
+    const newPath = path.join(SIGNED_DIR, `SUMARIUM-${id}-${Date.now()}-${safeName}`);
+    await fs.writeFile(newPath, req.file.buffer);
+
+    const oldPath = sig.certificate_path;
+    await db.query('UPDATE signature_requests SET certificate_path = ? WHERE id = ?', [newPath, id]);
+    if (oldPath) await fs.unlink(path.resolve(oldPath)).catch(() => {});
+
+    await db.query(
+      'INSERT INTO activity_logs (signature_request_id, event_type, details) VALUES (?, ?, ?)',
+      [id, 'CERTIFICATE_REPLACED', JSON.stringify({ replacedBy: req.user.name || req.user.email, originalName: req.file.originalname })]
+    );
+
+    res.json({ ok: true, message: 'Sumario reemplazado correctamente' });
   } catch (err) {
     next(err);
   }
@@ -289,6 +332,7 @@ async function deleteSignature(req, res, next) {
       sig.document_original_path,
       sig.signed_document_path,
       sig.signature_image_path,
+      sig.certificate_path,
     ].filter(Boolean);
 
     await Promise.all(filesToDelete.map(f =>
@@ -406,4 +450,4 @@ async function sendDocumentWithData(req, res, next) {
   }
 }
 
-module.exports = { sendDocument, sendDocumentWithData, listSignatures, getSignature, downloadSignedDocument, downloadCertificate, replaceSignedDocument, getDashboardStats, deleteSignature };
+module.exports = { sendDocument, sendDocumentWithData, listSignatures, getSignature, downloadSignedDocument, downloadCertificate, replaceSignedDocument, replaceCertificate, getDashboardStats, deleteSignature };

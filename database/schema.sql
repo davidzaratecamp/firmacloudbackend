@@ -35,6 +35,7 @@ CREATE TABLE signature_requests (
   signer_geolocation JSON NULL,
   signed_document_path VARCHAR(500) NULL,
   signature_image_path VARCHAR(500) NULL,
+  certificate_path VARCHAR(500) NULL,
   ersd_accepted_at TIMESTAMP NULL,
   ersd_acceptance_id VARCHAR(36) NULL,
   agent_name_sent VARCHAR(100) NULL,
