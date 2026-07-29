@@ -292,18 +292,20 @@ async function generateCertificate(sig, logs) {
         const sigImage = await pdfDoc.embedPng(sigImageBytes);
         drawSection('FIRMA DEL CLIENTE');
         y -= 10;
-        if (y > 120) {
-          const sigDims = sigImage.scaleToFit(180, 60);
-          page.drawRectangle({
-            x: M + 8, y: y - sigDims.height - 6,
-            width: sigDims.width + 12, height: sigDims.height + 12,
-            color: rgb(0.98, 0.98, 0.98),
-            borderColor: rgb(0.8, 0.8, 0.85),
-            borderWidth: 0.5,
-          });
-          page.drawImage(sigImage, { x: M + 14, y: y - sigDims.height, width: sigDims.width, height: sigDims.height });
-          y -= sigDims.height + 20;
-        }
+        // Si no queda el espacio ideal (180x60), se reduce el tamaño de la firma
+        // para que siempre quede plasmada por encima de la línea de pie de página (y=50).
+        const footerClearance = 60;
+        const maxBoxHeight = Math.max(30, y - footerClearance);
+        const sigDims = sigImage.scaleToFit(180, maxBoxHeight - 12);
+        page.drawRectangle({
+          x: M + 8, y: y - sigDims.height - 6,
+          width: sigDims.width + 12, height: sigDims.height + 12,
+          color: rgb(0.98, 0.98, 0.98),
+          borderColor: rgb(0.8, 0.8, 0.85),
+          borderWidth: 0.5,
+        });
+        page.drawImage(sigImage, { x: M + 14, y: y - sigDims.height, width: sigDims.width, height: sigDims.height });
+        y -= sigDims.height + 20;
       } catch (err) {
         console.error(`[generateCertificate] No se pudo incrustar la firma (sig.id=${sig.id}, path=${sig.signature_image_path}):`, err.message);
       }
