@@ -304,7 +304,9 @@ async function generateCertificate(sig, logs) {
           page.drawImage(sigImage, { x: M + 14, y: y - sigDims.height, width: sigDims.width, height: sigDims.height });
           y -= sigDims.height + 20;
         }
-      } catch {}
+      } catch (err) {
+        console.error(`[generateCertificate] No se pudo incrustar la firma (sig.id=${sig.id}, path=${sig.signature_image_path}):`, err.message);
+      }
     }
 
     page.drawLine({ start: { x: M, y: 50 }, end: { x: W - M, y: 50 }, thickness: 0.5, color: rgb(0.8, 0.8, 0.8) });
