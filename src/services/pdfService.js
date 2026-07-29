@@ -55,6 +55,31 @@ function wrapValueAfterLabel(text, font, fontSize, firstLineWidth, restLineWidth
   return lines;
 }
 
+// Caracteres que WinAnsiEncoding (fuentes estándar Helvetica) sí sabe codificar,
+// más allá del rango ASCII/Latin-1: comillas tipográficas, guiones largos, etc. (cp1252 0x80-0x9F).
+const WINANSI_EXTRA_CHARS = new Set([
+  '€', '‚', 'ƒ', '„', '…', '†', '‡',
+  'ˆ', '‰', 'Š', '‹', 'Œ', 'Ž', '‘',
+  '’', '“', '”', '•', '–', '—', '˜',
+  '™', 'š', '›', 'œ', 'ž', 'Ÿ',
+]);
+
+// Evita que pdf-lib truene con "WinAnsi cannot encode ..." cuando un campo de texto
+// (típicamente pegado desde Excel/Word) trae tabs u otros caracteres fuera de WinAnsi.
+function sanitizeForPdf(value) {
+  if (value === null || value === undefined) return '';
+  let out = '';
+  for (const ch of String(value)) {
+    const code = ch.codePointAt(0);
+    if ((code >= 0x20 && code <= 0x7E) || (code >= 0xA0 && code <= 0xFF) || WINANSI_EXTRA_CHARS.has(ch)) {
+      out += ch;
+    } else {
+      out += ' ';
+    }
+  }
+  return out.replace(/\s+/g, ' ').trim();
+}
+
 async function stampSignature(originalPdfPath, signatureDataUrl, signerInfo, signFieldOverride = null, signPageIndex = 0, extraSignLocations = []) {
   const SIGN_FIELD = resolveSignField(signFieldOverride);
 
@@ -81,10 +106,10 @@ async function stampSignature(originalPdfPath, signatureDataUrl, signerInfo, sig
   const shortDate = `${pad(d.getUTCMonth() + 1)}/${pad(d.getUTCDate())}/${d.getUTCFullYear()}`;
   const shortTime = `${pad(d.getUTCHours())}:${pad(d.getUTCMinutes())}:${pad(d.getUTCSeconds())}`;
   const headerDate = `${shortDate} ${shortTime} UTC`;
-  const headerText = `${signerInfo.clientEmail}  ${headerDate}`.trim();
+  const headerText = `${sanitizeForPdf(signerInfo.clientEmail)}  ${headerDate}`.trim();
   const footerText = [
-    signerInfo.signerName ? `Cliente: ${signerInfo.signerName}` : null,
-    `IP: ${signerInfo.ipAddress || 'N/A'}`,
+    signerInfo.signerName ? `Cliente: ${sanitizeForPdf(signerInfo.signerName)}` : null,
+    `IP: ${sanitizeForPdf(signerInfo.ipAddress) || 'N/A'}`,
     `${shortDate} ${shortTime} UTC`,
     `ID: ${signerInfo.id}`,
   ].filter(Boolean).join('  |  ');
@@ -205,7 +230,7 @@ async function generateCertificate(sig, logs) {
     const drawRow = (label, value) => {
       y -= 18;
       page.drawText(label + ':', { x: M + 8, y, size: 9, font: fontBold, color: rgb(0.3, 0.3, 0.3) });
-      page.drawText(String(value || 'N/A'), { x: 200, y, size: 9, font, color: rgb(0.1, 0.1, 0.1) });
+      page.drawText(sanitizeForPdf(value) || 'N/A', { x: 200, y, size: 9, font, color: rgb(0.1, 0.1, 0.1) });
     };
 
     drawSection('IDENTIFICACIÓN DE LA FIRMA');
@@ -244,7 +269,7 @@ async function generateCertificate(sig, logs) {
     if (sig.signer_user_agent) {
       y -= 18;
       page.drawText('User-Agent:', { x: M + 8, y, size: 9, font: fontBold, color: rgb(0.3, 0.3, 0.3) });
-      const ua = sig.signer_user_agent;
+      const ua = sanitizeForPdf(sig.signer_user_agent);
       const maxChars = 70;
       page.drawText(ua.slice(0, maxChars), { x: 200, y, size: 8, font, color: rgb(0.1, 0.1, 0.1) });
       if (ua.length > maxChars) {
@@ -351,7 +376,7 @@ async function generateCertificate(sig, logs) {
         y -= 13;
         if (log.details) {
           const det = typeof log.details === 'string' ? log.details : JSON.stringify(log.details);
-          page.drawText(det.slice(0, 90), { x: M + 20, y, size: 7.5, font, color: rgb(0.45, 0.45, 0.45) });
+          page.drawText(sanitizeForPdf(det).slice(0, 90), { x: M + 20, y, size: 7.5, font, color: rgb(0.45, 0.45, 0.45) });
           y -= 13;
         }
       }
@@ -388,7 +413,7 @@ async function generateCertificate(sig, logs) {
     const writeLine = (text, opts = {}) => {
       const { fontSize = 9.5, bold = false, indent = 0, color: c = rgb(0.1, 0.1, 0.1) } = opts;
       const f = bold ? fontBold : font;
-      const lines = wrapText(text, CW - indent, f, fontSize);
+      const lines = wrapText(sanitizeForPdf(text), CW - indent, f, fontSize);
       for (const line of lines) {
         checkPage(fontSize + 5);
         page.drawText(line, { x: M + indent, y, size: fontSize, font: f, color: c });
