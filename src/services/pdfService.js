@@ -290,22 +290,40 @@ async function generateCertificate(sig, logs) {
       try {
         const sigImageBytes = await fs.readFile(sig.signature_image_path);
         const sigImage = await pdfDoc.embedPng(sigImageBytes);
-        drawSection('FIRMA DEL CLIENTE');
-        y -= 10;
-        // Si no queda el espacio ideal (180x60), se reduce el tamaño de la firma
-        // para que siempre quede plasmada por encima de la línea de pie de página (y=50).
+
+        // Dibuja el bloque "FIRMA DEL CLIENTE" (título + imagen) a tamaño normal
+        // en la página y posición Y indicadas. Devuelve el Y resultante.
+        const drawSignatureBlock = (targetPage, startY) => {
+          let sy = startY - 20;
+          targetPage.drawRectangle({ x: M, y: sy - 4, width: CW, height: 22, color: rgb(0.93, 0.96, 1) });
+          targetPage.drawText('FIRMA DEL CLIENTE', { x: M + 8, y: sy + 2, size: 10, font: fontBold, color: rgb(0.12, 0.23, 0.37) });
+          sy -= 8;
+          sy -= 10;
+          const sigDims = sigImage.scaleToFit(180, 60);
+          targetPage.drawRectangle({
+            x: M + 8, y: sy - sigDims.height - 6,
+            width: sigDims.width + 12, height: sigDims.height + 12,
+            color: rgb(0.98, 0.98, 0.98),
+            borderColor: rgb(0.8, 0.8, 0.85),
+            borderWidth: 0.5,
+          });
+          targetPage.drawImage(sigImage, { x: M + 14, y: sy - sigDims.height, width: sigDims.width, height: sigDims.height });
+          return sy - sigDims.height - 20;
+        };
+
         const footerClearance = 60;
-        const maxBoxHeight = Math.max(30, y - footerClearance);
-        const sigDims = sigImage.scaleToFit(180, maxBoxHeight - 12);
-        page.drawRectangle({
-          x: M + 8, y: y - sigDims.height - 6,
-          width: sigDims.width + 12, height: sigDims.height + 12,
-          color: rgb(0.98, 0.98, 0.98),
-          borderColor: rgb(0.8, 0.8, 0.85),
-          borderWidth: 0.5,
-        });
-        page.drawImage(sigImage, { x: M + 14, y: y - sigDims.height, width: sigDims.width, height: sigDims.height });
-        y -= sigDims.height + 20;
+        const spaceNeeded = 20 + 8 + 10 + 60 + 12; // título de sección + caja de firma (tamaño normal)
+        if (y - spaceNeeded >= footerClearance) {
+          y = drawSignatureBlock(page, y);
+        } else {
+          // No alcanza el espacio en la página 1: la firma continúa en una página aparte,
+          // siempre a tamaño normal (nunca se reduce ni se omite).
+          const sigPage = pdfDoc.addPage([W, H]);
+          sigPage.drawRectangle({ x: 0, y: H - 90, width: W, height: 90, color: rgb(0.12, 0.23, 0.37) });
+          sigPage.drawText('EVIDENCIA DE FIRMA (CONTINUACIÓN)', { x: M, y: H - 42, size: 16, font: fontBold, color: rgb(1, 1, 1) });
+          sigPage.drawText('Health Care', { x: M, y: H - 64, size: 10, font, color: rgb(0.7, 0.85, 1) });
+          drawSignatureBlock(sigPage, H - 115);
+        }
       } catch (err) {
         console.error(`[generateCertificate] No se pudo incrustar la firma (sig.id=${sig.id}, path=${sig.signature_image_path}):`, err.message);
       }
