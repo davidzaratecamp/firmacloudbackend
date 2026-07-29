@@ -5,7 +5,7 @@ const multer = require('multer');
 const auth = require('../middleware/auth');
 const apiKeyOrAuth = require('../middleware/apiKeyOrAuth');
 const requireRole = require('../middleware/requireRole');
-const { sendDocument, sendDocumentWithData, listSignatures, getSignature, downloadSignedDocument, downloadCertificate, replaceSignedDocument, getDashboardStats, deleteSignature } = require('../controllers/signatureController');
+const { sendDocument, sendDocumentWithData, listSignatures, getSignature, downloadSignedDocument, downloadCertificate, replaceSignedDocument, replaceCertificate, getDashboardStats, deleteSignature } = require('../controllers/signatureController');
 
 const uploadPdf = multer({
   storage: multer.memoryStorage(),
@@ -27,6 +27,7 @@ router.get('/', auth, requireFirmaAccess, listSignatures);
 router.get('/:id/download', apiKeyOrAuth, requireFirmaAccess, downloadSignedDocument);
 router.get('/:id/certificate', apiKeyOrAuth, requireFirmaAccess, downloadCertificate);
 router.put('/:id/replace-signed', auth, requireFirmaAccess, uploadPdf.single('file'), replaceSignedDocument);
+router.put('/:id/replace-certificate', auth, requireFirmaAccess, uploadPdf.single('file'), replaceCertificate);
 router.get('/:id', apiKeyOrAuth, requireFirmaAccess, getSignature);
 router.delete('/:id', auth, requireFirmaAccess, deleteSignature);
 
