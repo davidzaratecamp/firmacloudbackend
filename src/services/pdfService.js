@@ -278,11 +278,13 @@ async function generateCertificate(sig, logs) {
       }
     }
 
+    let hasGeolocation = false;
     if (sig.signer_geolocation) {
       const geo = typeof sig.signer_geolocation === 'string' ? JSON.parse(sig.signer_geolocation) : sig.signer_geolocation;
       if (geo && geo.latitude) {
         if (geo.locationName) drawRow('Ubicación', geo.locationName);
         drawRow('Geolocalización', `Lat: ${geo.latitude}, Lng: ${geo.longitude} (±${geo.accuracy}m)`);
+        hasGeolocation = true;
       }
     }
 
@@ -311,12 +313,13 @@ async function generateCertificate(sig, logs) {
           return sy - sigDims.height - 20;
         };
 
-        const footerClearance = 60;
-        const spaceNeeded = 20 + 8 + 10 + 60 + 12; // título de sección + caja de firma (tamaño normal)
-        if (y - spaceNeeded >= footerClearance) {
+        // La firma pasa a una página aparte únicamente cuando se incluyó el bloque
+        // de geolocalización (Ubicación/Geolocalización) en la página 1; si esos
+        // datos son nulos, la firma siempre queda en la página 1.
+        if (!hasGeolocation) {
           y = drawSignatureBlock(page, y);
         } else {
-          // No alcanza el espacio en la página 1: la firma continúa en una página aparte,
+          // Se incluyó geolocalización: la firma continúa en una página aparte,
           // siempre a tamaño normal (nunca se reduce ni se omite).
           const sigPage = pdfDoc.addPage([W, H]);
           sigPage.drawRectangle({ x: 0, y: H - 90, width: W, height: 90, color: rgb(0.12, 0.23, 0.37) });
