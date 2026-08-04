@@ -9,14 +9,34 @@ const { sendFormWhatsApp } = require('./whatsappService');
 
 const UPLOADS_DIR = path.resolve(process.env.UPLOADS_DIR || path.join(__dirname, '../../uploads'));
 
-function getPlantillaPath(npnName) {
+function getPlantillaPath(npnName, folderName = '') {
   const dir = process.env.PLANTILLAS_DIR || path.join(__dirname, '../../../plantillas');
-  return path.join(dir, `${npnName}.pdf`);
+  return path.join(dir, folderName || '', `${npnName}.pdf`);
+}
+
+// Generación de plantilla actualmente activa para un NPN (tabla npn_active_template).
+// Si el NPN no tiene fila (no debería pasar tras la migración de backfill), cae a la
+// generación 'oscar' si existe; si tampoco existe esa fila (instalación sin migrar),
+// resuelve como antes (raíz de PLANTILLAS_DIR).
+async function getActiveGeneration(npnName) {
+  const [rows] = await db.query(
+    `SELECT tg.id, tg.folder_name
+     FROM npn_active_template nat
+     JOIN template_generations tg ON tg.id = nat.generation_id
+     WHERE nat.npn_name = ?`,
+    [npnName]
+  );
+  if (rows[0]) return rows[0];
+
+  const [fallback] = await db.query(`SELECT id, folder_name FROM template_generations WHERE label = 'oscar'`);
+  return fallback[0] || null;
 }
 
 // Resuelve y valida la plantilla PDF de un NPN una sola vez (reusable por envío manual y por lotes de oleada)
 async function resolveNpnTemplate(npnName) {
-  const cartaPath = getPlantillaPath(npnName.trim());
+  const trimmedName = npnName.trim();
+  const generation = await getActiveGeneration(trimmedName);
+  const cartaPath = getPlantillaPath(trimmedName, generation && generation.folder_name);
   try {
     await fs.access(cartaPath);
   } catch {
@@ -24,14 +44,19 @@ async function resolveNpnTemplate(npnName) {
     err.code = 'TEMPLATE_NOT_FOUND';
     throw err;
   }
-  const docName = `${npnName.trim()}.pdf`;
+  const docName = `${trimmedName}.pdf`;
   const docHash = await hashFile(cartaPath);
-  return { cartaPath, docName, docHash };
+  return {
+    cartaPath,
+    docName,
+    docHash,
+    generationId: generation ? generation.id : null,
+  };
 }
 
 // Crea el signature_request + copia la plantilla + envía email/whatsapp para UN destinatario.
 async function dispatchCartaToRecipient({
-  agentId, npnName, npnCode, cartaPath, docName, docHash,
+  agentId, npnName, npnCode, cartaPath, docName, docHash, generationId,
   sendChannel, clientName, clientEmail, clientPhone, sentFromIp,
 }) {
   const id = uuidv4();
@@ -54,6 +79,16 @@ async function dispatchCartaToRecipient({
       sentFromIp || null,
     ]
   );
+
+  // Congela qué generación de plantilla (y por lo tanto qué coordenadas de firma) se usó
+  // en ESTE envío puntual — un swap posterior de npn_active_template no debe afectar el
+  // estampado de esta carta, que puede quedar pendiente de firma por tiempo indefinido.
+  if (generationId) {
+    await db.query(
+      'INSERT INTO carta_template_snapshot (signature_request_id, generation_id) VALUES (?, ?)',
+      [id, generationId]
+    );
+  }
 
   if (sendChannel === 'email' || sendChannel === 'both') {
     try {

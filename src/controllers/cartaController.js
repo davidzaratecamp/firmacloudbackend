@@ -5,14 +5,28 @@ const db = require('../config/database');
 const { resolveNpnTemplate, dispatchCartaToRecipient } = require('../services/cartaDispatchService');
 const { getServerLocation } = require('../utils/serverLocation');
 
-// Comparte los filtros de búsqueda entre el listado paginado y la exportación a Excel
+// Cartas enviadas antes de existir carta_template_snapshot no tienen fila ahí — todas
+// se enviaron con la plantilla/marca "oscar" (la única que existía en ese momento).
+const DEFAULT_INSURER_LABEL = 'oscar';
+
+// LEFT JOIN reusado por listCartas/exportCartas (SELECT y COUNT) para poder filtrar y
+// mostrar de qué generación de plantilla (marca de aseguradora) viene cada carta.
+const INSURER_JOIN = `
+  LEFT JOIN carta_template_snapshot cts ON cts.signature_request_id = sr.id
+  LEFT JOIN template_generations tg ON tg.id = cts.generation_id`;
+const INSURER_LABEL_SQL = `COALESCE(tg.label, '${DEFAULT_INSURER_LABEL}')`;
+
+// Comparte los filtros de búsqueda entre el listado paginado y la exportación a Excel.
+// Las queries que usan el `where` resultante deben incluir INSURER_JOIN en su FROM
+// porque el filtro de aseguradora referencia el alias `tg`.
 function buildCartaFilters(req) {
-  const { status, search, dateFrom, dateTo } = req.query;
+  const { status, search, dateFrom, dateTo, insurer } = req.query;
   let where = 'sr.npn_name IS NOT NULL';
   const params = [];
 
   if (req.user.role !== 'admin') { where += ' AND sr.agent_id = ?'; params.push(req.user.id); }
   if (status) { where += ' AND sr.status = ?'; params.push(status); }
+  if (insurer) { where += ` AND ${INSURER_LABEL_SQL} = ?`; params.push(insurer); }
   if (search) {
     where += ' AND (sr.client_name LIKE ? OR sr.client_email LIKE ? OR sr.npn_name LIKE ?)';
     params.push(`%${search}%`, `%${search}%`, `%${search}%`);
@@ -34,9 +48,9 @@ async function sendCarta(req, res, next) {
     if (!Array.isArray(recipients) || recipients.length === 0)
       return res.status(400).json({ error: 'Se requiere al menos un destinatario' });
 
-    let cartaPath, docName, docHash;
+    let cartaPath, docName, docHash, generationId;
     try {
-      ({ cartaPath, docName, docHash } = await resolveNpnTemplate(npnName));
+      ({ cartaPath, docName, docHash, generationId } = await resolveNpnTemplate(npnName));
     } catch {
       return res.status(404).json({ error: `Plantilla no encontrada: ${npnName}.pdf` });
     }
@@ -66,7 +80,7 @@ async function sendCarta(req, res, next) {
           agentId: req.user.id,
           npnName,
           npnCode,
-          cartaPath, docName, docHash,
+          cartaPath, docName, docHash, generationId,
           sendChannel,
           clientName: clientName.trim(),
           clientEmail,
@@ -104,9 +118,11 @@ async function listCartas(req, res, next) {
     const [rows] = await db.query(
       `SELECT sr.id, sr.client_name, sr.client_email, sr.client_phone,
               sr.send_channel, sr.status, sr.sent_at, sr.viewed_at, sr.signed_at,
-              sr.npn_name, sr.npn_code, a.name AS agent_name
+              sr.npn_name, sr.npn_code, a.name AS agent_name,
+              ${INSURER_LABEL_SQL} AS insurer
        FROM signature_requests sr
        JOIN agents a ON sr.agent_id = a.id
+       ${INSURER_JOIN}
        WHERE ${where}
        ORDER BY sr.created_at DESC
        LIMIT ? OFFSET ?`,
@@ -114,7 +130,7 @@ async function listCartas(req, res, next) {
     );
 
     const [[{ total }]] = await db.query(
-      `SELECT COUNT(*) AS total FROM signature_requests sr WHERE ${where}`,
+      `SELECT COUNT(*) AS total FROM signature_requests sr ${INSURER_JOIN} WHERE ${where}`,
       params
     );
 
@@ -132,13 +148,14 @@ async function exportCartas(req, res, next) {
       `SELECT sr.client_name AS 'Cliente', sr.client_email AS 'Email', sr.client_phone AS 'Teléfono',
               sr.npn_name AS 'NPN', sr.npn_code AS 'Código NPN', sr.send_channel AS 'Canal',
               sr.status AS 'Estado', sr.sent_at AS 'Enviado', sr.viewed_at AS 'Abierto', sr.signed_at AS 'Firmado',
-              a.name AS 'Agente',
+              a.name AS 'Agente', ${INSURER_LABEL_SQL} AS 'Aseguradora',
               cfd.name AS 'Nombre actualizado', cfd.phone AS 'Teléfono actualizado',
               cfd.email AS 'Email actualizado', cfd.postalcode AS 'Código postal',
               cfd.submitted_at AS 'Formulario enviado'
        FROM signature_requests sr
        JOIN agents a ON sr.agent_id = a.id
        LEFT JOIN carta_form_data cfd ON cfd.signature_request_id = sr.id
+       ${INSURER_JOIN}
        WHERE ${where}
        ORDER BY sr.created_at DESC`,
       params

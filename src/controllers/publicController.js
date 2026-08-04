@@ -173,13 +173,35 @@ async function submitSignature(req, res, next) {
     let extraSignLocations = [];
 
     if (sig.npn_name) {
-      // Flujo NPN: coordenadas desde env vars
-      const x = parseFloat(process.env.NPN_SIGN_FIELD_X);
-      const y = parseFloat(process.env.NPN_SIGN_FIELD_Y);
-      const w = parseFloat(process.env.NPN_SIGN_FIELD_W);
-      const h = parseFloat(process.env.NPN_SIGN_FIELD_H);
-      if (!isNaN(x) && !isNaN(y)) {
-        signFieldOverride = { x, y, width: isNaN(w) ? 200 : w, height: isNaN(h) ? 50 : h };
+      // Flujo NPN: coordenadas de la generación de plantilla congelada para ESTA carta al
+      // enviarla (carta_template_snapshot) — así un swap de plantilla posterior a este envío
+      // (npn_active_template) nunca desplaza la firma de una carta que ya estaba en tránsito.
+      // Cartas de antes de la migración de generaciones no tienen snapshot: caen al mismo
+      // comportamiento de siempre (env vars), sin cambio de conducta para ellas.
+      let snapshot = null;
+      try {
+        const [snapshotRows] = await db.query(
+          `SELECT tg.sign_field_x AS x, tg.sign_field_y AS y, tg.sign_field_w AS w, tg.sign_field_h AS h
+           FROM carta_template_snapshot cts
+           JOIN template_generations tg ON tg.id = cts.generation_id
+           WHERE cts.signature_request_id = ?`,
+          [sig.id]
+        );
+        snapshot = snapshotRows[0] || null;
+      } catch {
+        snapshot = null; // tablas de generaciones aún no migradas: cae al comportamiento de siempre
+      }
+
+      if (snapshot) {
+        signFieldOverride = { x: snapshot.x, y: snapshot.y, width: snapshot.w, height: snapshot.h };
+      } else {
+        const x = parseFloat(process.env.NPN_SIGN_FIELD_X);
+        const y = parseFloat(process.env.NPN_SIGN_FIELD_Y);
+        const w = parseFloat(process.env.NPN_SIGN_FIELD_W);
+        const h = parseFloat(process.env.NPN_SIGN_FIELD_H);
+        if (!isNaN(x) && !isNaN(y)) {
+          signFieldOverride = { x, y, width: isNaN(w) ? 200 : w, height: isNaN(h) ? 50 : h };
+        }
       }
     } else if (signPageIndex > 0) {
       // Flujo contrato de activación (send-with-data): coordenadas desde config JSON

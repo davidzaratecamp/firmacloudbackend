@@ -24,7 +24,7 @@ async function sendCartaFormulario({ clientName, clientEmail, token, requestId, 
 
   <tr>
     <td style="background:linear-gradient(135deg,#1e3a5f 0%,#2563eb 100%);padding:20px 32px;">
-      <p style="margin:0;color:#93c5fd;font-size:11px;letter-spacing:1.5px;text-transform:uppercase;">Aseguradora Oscar</p>
+      <p style="margin:0;color:#93c5fd;font-size:11px;letter-spacing:1.5px;text-transform:uppercase;">Ambetter Health</p>
       <h1 style="margin:4px 0 0;color:#fff;font-size:19px;font-weight:700;">Actualización Urgente de Datos</h1>
     </td>
   </tr>
@@ -33,7 +33,7 @@ async function sendCartaFormulario({ clientName, clientEmail, token, requestId, 
     <td style="padding:28px 32px 0;">
       <p style="margin:0 0 16px;font-size:16px;color:#111827;">Estimado/a <strong>${clientName}</strong>,</p>
       <p style="margin:0 0 14px;font-size:14px;color:#374151;line-height:1.8;">
-        Nos comunicamos con usted de parte de la <strong>Aseguradora Oscar</strong> para informarle que,
+        Nos comunicamos con usted de parte de <strong>Ambetter Health</strong> para informarle que,
         de acuerdo con nuestros registros, es necesario actualizar su información personal
         en nuestra base de datos de manera <strong>urgente</strong>.
       </p>
@@ -99,7 +99,7 @@ async function sendCartaFormulario({ clientName, clientEmail, token, requestId, 
   <tr>
     <td style="background:#f9fafb;padding:14px 32px;text-align:center;border-top:1px solid #e5e7eb;">
       <p style="font-size:11px;color:#9ca3af;margin:0;">
-        Este mensaje fue enviado por <strong>Asiste Health Care</strong> en nombre de la <strong>Aseguradora Oscar</strong> &middot;
+        Este mensaje fue enviado por <strong>Asiste Health Care</strong> en nombre de <strong>Ambetter Health</strong> &middot;
         <a href="mailto:soporte@asistehealth.com" style="color:#2563eb;">soporte@asistehealth.com</a>
       </p>
       <img src="${pixelUrl}" width="1" height="1" alt="" style="border:0;display:block;margin:4px auto 0;" />
@@ -115,7 +115,7 @@ async function sendCartaFormulario({ clientName, clientEmail, token, requestId, 
   const text = [
     `Estimado/a ${clientName},`,
     '',
-    `Nos comunicamos con usted de parte de la Aseguradora Oscar para informarle que es necesario actualizar su información personal de manera urgente.`,
+    `Nos comunicamos con usted de parte de Ambetter Health para informarle que es necesario actualizar su información personal de manera urgente.`,
     '',
     `Adjunto a este correo encontrará el comunicado oficial completo. Los enlaces del PDF son accesibles con un solo clic.`,
     '',
@@ -128,7 +128,7 @@ async function sendCartaFormulario({ clientName, clientEmail, token, requestId, 
   await transporter.sendMail({
     from:    `"${process.env.SMTP_FROM_NAME}" <${process.env.SMTP_FROM_EMAIL}>`,
     to:      clientEmail,
-    subject: `URGENTE: Actualización de datos requerida — Aseguradora Oscar`,
+    subject: `URGENTE: Actualización de datos requerida — Ambetter Health`,
     text,
     html,
     attachments: [{ filename: docName, path: cartaPath }],
