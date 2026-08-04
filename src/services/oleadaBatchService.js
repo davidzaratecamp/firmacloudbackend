@@ -110,6 +110,7 @@ async function dispatchPendingBatch(oleada, limit) {
         cartaPath: template.cartaPath,
         docName: template.docName,
         docHash: template.docHash,
+        generationId: template.generationId,
         sendChannel: oleada.send_channel,
         clientName: recipient.name,
         clientEmail: recipient.email,

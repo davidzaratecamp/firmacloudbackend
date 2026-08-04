@@ -76,7 +76,7 @@ async function sendFormWhatsApp({ clientName, clientPhone, token, npnName }) {
   // Texto del template en Meta debe ser:
   // Estimado/a {{1}},
   //
-  // Nos comunicamos con usted de parte de la Aseguradora Oscar para informarle que, de acuerdo
+  // Nos comunicamos con usted de parte de Ambetter Health para informarle que, de acuerdo
   // con nuestros registros, es necesario actualizar su información personal en nuestra base de
   // datos de manera urgente.
   //
