@@ -11,7 +11,7 @@ function ownerClause(req, alias = 'o') {
 
 async function createOleada(req, res, next) {
   try {
-    const { npnName, npnCode, name, sendChannel = 'email', dailyLimit } = req.body;
+    const { npnName, npnCode, name, sendChannel = 'email', dailyLimit, insurer } = req.body;
 
     if (!req.file) return res.status(400).json({ error: 'Archivo requerido (CSV o Excel)' });
     if (!npnName || typeof npnName !== 'string' || !npnName.trim())
@@ -25,9 +25,9 @@ async function createOleada(req, res, next) {
       return res.status(400).json({ error: 'dailyLimit debe ser un número mayor a 0' });
 
     try {
-      await resolveNpnTemplate(npnName);
-    } catch {
-      return res.status(404).json({ error: `Plantilla no encontrada: ${npnName}.pdf` });
+      await resolveNpnTemplate(npnName, insurer || null);
+    } catch (err) {
+      return res.status(404).json({ error: err.message || `Plantilla no encontrada: ${npnName}.pdf` });
     }
 
     let valid, invalid;
@@ -41,9 +41,9 @@ async function createOleada(req, res, next) {
       return res.status(400).json({ error: 'El archivo no contiene destinatarios válidos', invalidRows: invalid });
 
     const [result] = await db.query(
-      `INSERT INTO oleadas (name, npn_name, npn_code, send_channel, daily_limit, total_recipients, source_filename, created_by)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
-      [name.trim(), npnName.trim(), npnCode || null, sendChannel, limit, valid.length, req.file.originalname, req.user.id]
+      `INSERT INTO oleadas (name, npn_name, npn_code, send_channel, daily_limit, total_recipients, source_filename, created_by, template_generation_label)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      [name.trim(), npnName.trim(), npnCode || null, sendChannel, limit, valid.length, req.file.originalname, req.user.id, insurer || null]
     );
     const oleadaId = result.insertId;
 

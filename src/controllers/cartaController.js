@@ -39,7 +39,7 @@ function buildCartaFilters(req) {
 
 async function sendCarta(req, res, next) {
   try {
-    const { npnName, npnCode, recipients, sendChannel = 'email' } = req.body;
+    const { npnName, npnCode, recipients, sendChannel = 'email', insurer } = req.body;
 
     if (!npnName || typeof npnName !== 'string' || !npnName.trim())
       return res.status(400).json({ error: 'NPN requerido' });
@@ -48,11 +48,11 @@ async function sendCarta(req, res, next) {
     if (!Array.isArray(recipients) || recipients.length === 0)
       return res.status(400).json({ error: 'Se requiere al menos un destinatario' });
 
-    let cartaPath, docName, docHash, generationId;
+    let cartaPath, docName, docHash, generationId, insurerName;
     try {
-      ({ cartaPath, docName, docHash, generationId } = await resolveNpnTemplate(npnName));
-    } catch {
-      return res.status(404).json({ error: `Plantilla no encontrada: ${npnName}.pdf` });
+      ({ cartaPath, docName, docHash, generationId, insurerName } = await resolveNpnTemplate(npnName, insurer || null));
+    } catch (err) {
+      return res.status(404).json({ error: err.message || `Plantilla no encontrada: ${npnName}.pdf` });
     }
 
     const serverLoc = getServerLocation();
@@ -80,7 +80,7 @@ async function sendCarta(req, res, next) {
           agentId: req.user.id,
           npnName,
           npnCode,
-          cartaPath, docName, docHash, generationId,
+          cartaPath, docName, docHash, generationId, insurerName,
           sendChannel,
           clientName: clientName.trim(),
           clientEmail,
