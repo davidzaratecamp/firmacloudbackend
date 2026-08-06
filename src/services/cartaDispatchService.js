@@ -20,7 +20,7 @@ function getPlantillaPath(npnName, folderName = '') {
 // resuelve como antes (raíz de PLANTILLAS_DIR).
 async function getActiveGeneration(npnName) {
   const [rows] = await db.query(
-    `SELECT tg.id, tg.folder_name
+    `SELECT tg.id, tg.folder_name, tg.insurer_display_name
      FROM npn_active_template nat
      JOIN template_generations tg ON tg.id = nat.generation_id
      WHERE nat.npn_name = ?`,
@@ -28,19 +28,46 @@ async function getActiveGeneration(npnName) {
   );
   if (rows[0]) return rows[0];
 
-  const [fallback] = await db.query(`SELECT id, folder_name FROM template_generations WHERE label = 'oscar'`);
+  const [fallback] = await db.query(
+    `SELECT id, folder_name, insurer_display_name FROM template_generations WHERE label = 'oscar'`
+  );
   return fallback[0] || null;
 }
 
-// Resuelve y valida la plantilla PDF de un NPN una sola vez (reusable por envío manual y por lotes de oleada)
-async function resolveNpnTemplate(npnName) {
+async function getGenerationByLabel(label) {
+  const [rows] = await db.query(
+    `SELECT id, folder_name, insurer_display_name FROM template_generations WHERE label = ?`,
+    [label]
+  );
+  return rows[0] || null;
+}
+
+// Resuelve y valida la plantilla PDF de un NPN una sola vez (reusable por envío manual y por lotes de oleada).
+// `generationLabel` es opcional — si se pasa (ej. 'oscar'/'ambetter', elegido por el agente al enviar),
+// fuerza esa generación puntual en vez de usar la que esté activa en npn_active_template.
+async function resolveNpnTemplate(npnName, generationLabel = null) {
   const trimmedName = npnName.trim();
-  const generation = await getActiveGeneration(trimmedName);
+
+  let generation;
+  if (generationLabel) {
+    generation = await getGenerationByLabel(generationLabel);
+    if (!generation) {
+      const err = new Error(`Aseguradora desconocida: ${generationLabel}`);
+      err.code = 'GENERATION_NOT_FOUND';
+      throw err;
+    }
+  } else {
+    generation = await getActiveGeneration(trimmedName);
+  }
+
   const cartaPath = getPlantillaPath(trimmedName, generation && generation.folder_name);
   try {
     await fs.access(cartaPath);
   } catch {
-    const err = new Error(`Plantilla no encontrada: ${npnName}.pdf`);
+    const label = generation && generation.insurer_display_name;
+    const err = new Error(
+      label ? `${label} no tiene plantilla para ${npnName}` : `Plantilla no encontrada: ${npnName}.pdf`
+    );
     err.code = 'TEMPLATE_NOT_FOUND';
     throw err;
   }
@@ -51,12 +78,13 @@ async function resolveNpnTemplate(npnName) {
     docName,
     docHash,
     generationId: generation ? generation.id : null,
+    insurerName: generation ? generation.insurer_display_name : null,
   };
 }
 
 // Crea el signature_request + copia la plantilla + envía email/whatsapp para UN destinatario.
 async function dispatchCartaToRecipient({
-  agentId, npnName, npnCode, cartaPath, docName, docHash, generationId,
+  agentId, npnName, npnCode, cartaPath, docName, docHash, generationId, insurerName,
   sendChannel, clientName, clientEmail, clientPhone, sentFromIp,
 }) {
   const id = uuidv4();
@@ -99,6 +127,7 @@ async function dispatchCartaToRecipient({
         requestId: id,
         cartaPath,
         npnName: npnName.trim(),
+        insurerName,
       });
     } catch (emailErr) {
       // Si el email falla (p.ej. cupo diario de Gmail agotado) marcar la carta como

@@ -78,7 +78,7 @@ async function dispatchPendingBatch(oleada, limit) {
 
   let template;
   try {
-    template = await resolveNpnTemplate(oleada.npn_name);
+    template = await resolveNpnTemplate(oleada.npn_name, oleada.template_generation_label || null);
   } catch (err) {
     console.error(`[oleada ${oleada.id}] Plantilla no encontrada, pausando oleada:`, err.message);
     await db.query(`UPDATE oleadas SET status = 'paused' WHERE id = ?`, [oleada.id]);
@@ -111,6 +111,7 @@ async function dispatchPendingBatch(oleada, limit) {
         docName: template.docName,
         docHash: template.docHash,
         generationId: template.generationId,
+        insurerName: template.insurerName,
         sendChannel: oleada.send_channel,
         clientName: recipient.name,
         clientEmail: recipient.email,
