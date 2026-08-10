@@ -13,12 +13,21 @@ const { getServerLocation } = require('../utils/serverLocation');
 const UPLOADS_DIR = path.resolve(process.env.UPLOADS_DIR || path.join(__dirname, '../../uploads'));
 const SIGNED_DIR  = path.resolve(process.env.SIGNED_DIR  || path.join(__dirname, '../../signed'));
 
+// Validación laxa de formato (evita que espacios en blanco o valores mal formados
+// pasen la validación de "requerido" y lleguen crudos a nodemailer/WhatsApp).
+const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+
 async function sendDocument(req, res, next) {
   try {
-    const { clientName, clientEmail, clientPhone, sendChannel = 'email', webhookUrl, agentName, agentCedula, loggedAgentName, loggedAgentId } = req.body;
+    let { clientName, clientEmail, clientPhone, sendChannel = 'email', webhookUrl, agentName, agentCedula, loggedAgentName, loggedAgentId } = req.body;
+    if (typeof clientEmail === 'string') clientEmail = clientEmail.trim();
+    if (typeof clientPhone === 'string') clientPhone = clientPhone.trim();
+
     if (!clientName) return res.status(400).json({ error: 'Nombre del cliente requerido' });
-    if ((sendChannel === 'email' || sendChannel === 'both') && !clientEmail)
-      return res.status(400).json({ error: 'Email requerido para envío por correo' });
+    if (sendChannel === 'email' || sendChannel === 'both') {
+      if (!clientEmail) return res.status(400).json({ error: 'Email requerido para envío por correo' });
+      if (!EMAIL_REGEX.test(clientEmail)) return res.status(400).json({ error: 'Email inválido' });
+    }
     if ((sendChannel === 'whatsapp' || sendChannel === 'both') && !clientPhone)
       return res.status(400).json({ error: 'Teléfono requerido para envío por WhatsApp' });
     if (req.user.isApiKey) {
@@ -62,7 +71,20 @@ async function sendDocument(req, res, next) {
     const sendArgs = { clientName, clientEmail, clientPhone, token, documentName: docName, agentName: req.user.name };
 
     if (sendChannel === 'email' || sendChannel === 'both') {
-      await sendSignatureRequest(sendArgs);
+      try {
+        await sendSignatureRequest(sendArgs);
+      } catch (emailErr) {
+        // El correo se intenta primero — si falla, aún no hubo ningún envío exitoso
+        // que preservar, así que limpiamos igual que en el fallo de canal único de WhatsApp.
+        console.error('[email] Fallo al enviar solicitud de firma:', emailErr.message);
+        await fs.unlink(uploadPath).catch(() => {});
+        await db.query('DELETE FROM activity_logs WHERE signature_request_id = ?', [id]);
+        await db.query('DELETE FROM signature_requests WHERE id = ?', [id]);
+        return res.status(503).json({
+          errorCode: 'EMAIL_UNAVAILABLE',
+          error: 'No se pudo enviar el correo en este momento. Verifica el correo del cliente o intenta de nuevo más tarde.',
+        });
+      }
     }
 
     if (sendChannel === 'whatsapp' || sendChannel === 'both') {
@@ -351,7 +373,7 @@ async function deleteSignature(req, res, next) {
 
 async function sendDocumentWithData(req, res, next) {
   try {
-    const {
+    let {
       clientName, clientEmail, clientPhone,
       sendChannel = 'email',
       webhookUrl, agentName, agentCedula,
@@ -359,11 +381,15 @@ async function sendDocumentWithData(req, res, next) {
       ventaId,
       documentData,
     } = req.body;
+    if (typeof clientEmail === 'string') clientEmail = clientEmail.trim();
+    if (typeof clientPhone === 'string') clientPhone = clientPhone.trim();
 
     // Validaciones básicas
     if (!clientName) return res.status(400).json({ error: 'Nombre del cliente requerido' });
-    if ((sendChannel === 'email' || sendChannel === 'both') && !clientEmail)
-      return res.status(400).json({ error: 'Email requerido para envío por correo' });
+    if (sendChannel === 'email' || sendChannel === 'both') {
+      if (!clientEmail) return res.status(400).json({ error: 'Email requerido para envío por correo' });
+      if (!EMAIL_REGEX.test(clientEmail)) return res.status(400).json({ error: 'Email inválido' });
+    }
     if ((sendChannel === 'whatsapp' || sendChannel === 'both') && !clientPhone)
       return res.status(400).json({ error: 'Teléfono requerido para envío por WhatsApp' });
     if (!documentData || (!documentData.page2 && !documentData.page3))
@@ -423,7 +449,18 @@ async function sendDocumentWithData(req, res, next) {
     const sendArgs = { clientName, clientEmail, clientPhone, token, documentName: docName, agentName: req.user.name || agentName };
 
     if (sendChannel === 'email' || sendChannel === 'both') {
-      await sendSignatureRequest(sendArgs);
+      try {
+        await sendSignatureRequest(sendArgs);
+      } catch (emailErr) {
+        console.error('[email] Fallo al enviar solicitud de firma (send-with-data):', emailErr.message);
+        await fs.unlink(uploadPath).catch(() => {});
+        await db.query('DELETE FROM activity_logs WHERE signature_request_id = ?', [id]);
+        await db.query('DELETE FROM signature_requests WHERE id = ?', [id]);
+        return res.status(503).json({
+          errorCode: 'EMAIL_UNAVAILABLE',
+          error: 'No se pudo enviar el correo en este momento. Verifica el correo del cliente o intenta de nuevo más tarde.',
+        });
+      }
     }
 
     if (sendChannel === 'whatsapp' || sendChannel === 'both') {
