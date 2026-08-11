@@ -20,7 +20,7 @@ function getPlantillaPath(npnName, folderName = '') {
 // resuelve como antes (raíz de PLANTILLAS_DIR).
 async function getActiveGeneration(npnName) {
   const [rows] = await db.query(
-    `SELECT tg.id, tg.folder_name, tg.insurer_display_name
+    `SELECT tg.id, tg.label, tg.folder_name, tg.insurer_display_name
      FROM npn_active_template nat
      JOIN template_generations tg ON tg.id = nat.generation_id
      WHERE nat.npn_name = ?`,
@@ -29,7 +29,7 @@ async function getActiveGeneration(npnName) {
   if (rows[0]) return rows[0];
 
   const [fallback] = await db.query(
-    `SELECT id, folder_name, insurer_display_name FROM template_generations WHERE label = 'oscar'`
+    `SELECT id, label, folder_name, insurer_display_name FROM template_generations WHERE label = 'oscar'`
   );
   return fallback[0] || null;
 }
@@ -156,4 +156,7 @@ async function dispatchCartaToRecipient({
   return { id, clientName };
 }
 
-module.exports = { getPlantillaPath, resolveNpnTemplate, dispatchCartaToRecipient, UPLOADS_DIR };
+module.exports = {
+  getPlantillaPath, resolveNpnTemplate, dispatchCartaToRecipient,
+  getActiveGeneration, getGenerationByLabel, UPLOADS_DIR,
+};
