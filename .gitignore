@@ -7,3 +7,12 @@ signed/*
 certificates/*
 !certificates/.gitkeep
 *.log
+
+# archivos de prueba
+test-fill.js
+form-uploads/
+document-templates/calibration-*.pdf
+document-templates/test-*.pdf
+
+# notas/markdown de trabajo
+claude/*.md
