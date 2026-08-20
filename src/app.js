@@ -17,6 +17,8 @@ const oleadasRoutes = require('./routes/oleadas');
 const agentsRoutes = require('./routes/agents');
 const hrContractsRoutes = require('./routes/hrContracts');
 const hrPublicRoutes = require('./routes/hrPublic');
+const reclutamientoRoutes = require('./routes/reclutamiento');
+const reclutamientoPublicRoutes = require('./routes/reclutamientoPublic');
 const errorHandler = require('./middleware/errorHandler');
 
 const app = express();
@@ -60,6 +62,8 @@ app.use('/api/oleadas', oleadasRoutes);
 app.use('/api/agents', agentsRoutes);
 app.use('/api/rrhh/contratos', hrContractsRoutes);
 app.use('/api/rrhh-sign', hrPublicRoutes);
+app.use('/api/reclutamiento', reclutamientoRoutes);
+app.use('/api/reclutamiento-sign', reclutamientoPublicRoutes);
 
 app.get('/api/health', (req, res) => res.json({ status: 'ok', timestamp: new Date().toISOString() }));
 
