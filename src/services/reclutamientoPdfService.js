@@ -16,17 +16,30 @@ const fs = require('fs').promises;
 // Por eso detectSignLocations() recibe el patrón de ancla como parámetro, en vez de tenerlo
 // fijo — el resto de la lógica (buscar la línea "____" encima, o un recuadro vectorial) es
 // igual para ambos documentos.
-const SIGN_BOX_MAX_WIDTH = 210;
-const SIGN_BOX_HEIGHT = 50;
+//
+// A diferencia de RRHH (celdas de tabla altas y en blanco, ~50pt), los dos documentos de este
+// módulo firman sobre un campo de UNA sola línea: "FIRMA DEL CANDIDATO: ____" corrido en el
+// mismo renglón (hoja de vida) o una línea "____" con "FIRMA" impreso justo debajo
+// (tratamiento) — en ambos casos el espacio real disponible es de apenas ~15-25pt, no 50. Un
+// sello de 50pt de alto terminaba flotando muy por encima de la línea (hoja de vida) o incluso
+// pisando el renglón siguiente. Por eso SIGN_BOX_HEIGHT bajó y el alto real se limita además
+// dinámicamente al hueco vertical libre hasta el texto más cercano por encima (ver
+// getAvailableGapAbove) — nunca asume que hay 50pt libres.
+const SIGN_BOX_MAX_WIDTH = 200;
+const SIGN_BOX_HEIGHT = 26;
+const MIN_BOX_HEIGHT = 13;
+const GAP_MARGIN = 3; // separación mínima entre el sello y el texto/línea más cercano arriba
 
 const STAMP_SCALE_BY_MODE = { draw: 1, font: 0.7 };
 
 const BRAND_BLUE = rgb(0.145, 0.388, 0.922); // #2563eb
-const BRACKET_TICK = 8;
-const BRACKET_RADIUS = 4;
-const BRACKET_ZONE_WIDTH = 12;
-const LABEL_ROW_HEIGHT = 10;
-const ID_ROW_HEIGHT = 9;
+const BRACKET_TICK = 6;
+const BRACKET_RADIUS = 3;
+const BRACKET_ZONE_WIDTH = 10;
+// Sin fila "Firmado por:" — sería redundante, los dos documentos ya traen su propia etiqueta
+// impresa ("FIRMA DEL CANDIDATO" / "FIRMA") justo ahí. Solo se deja una fila angosta con el ID
+// truncado, que es la única traza que no está ya impresa en el documento.
+const ID_ROW_HEIGHT = 7;
 
 // Recuadro vectorial (bordes de tabla) inmediatamente ARRIBA de un label — mismo método que
 // RRHH: busca los 2 bordes horizontales delgados más cercanos por encima del label y los
@@ -64,14 +77,53 @@ async function detectVectorBoxAbove(page, labelX, labelY) {
   return { x0: left.x, x1: right.x, y0: boxBottom, y1: boxTop };
 }
 
+// "ETIQUETA: ________" en un solo renglón corrido, fusionado en el MISMO item de texto que la
+// etiqueta (caso real de hoja de vida: "FIRMA DEL CANDIDATO: ______" es un único string, no dos
+// items separados) — a diferencia del caso con línea aparte (tratamiento de datos), aquí no hay
+// ningún item "____" independiente que buscar.
+const FUSED_UNDERSCORE_RE = /^(.*?)(_{3,})\s*$/;
+
+// Mide, dentro de un item de texto fusionado "ETIQUETA: ____", en qué punto (en unidades reales
+// del PDF) empieza el tramo de guiones bajos — mismo método que usa RRHH para ubicar el espacio
+// en blanco de "entidad de afiliación" dentro de una frase corrida: se mide con Helvetica la
+// PROPORCIÓN prefijo/total (no el ancho absoluto, que dependería de la fuente real de la
+// plantilla) y se proyecta esa proporción sobre el ancho real ya medido del item por pdfjs.
+function measureFusedUnderscoreOffset(measureFont, fullStr, prefix, realWidth) {
+  const wPrefix = measureFont.widthOfTextAtSize(prefix, 1);
+  const wFull = measureFont.widthOfTextAtSize(fullStr, 1);
+  if (!wFull) return 0;
+  return (wPrefix / wFull) * realWidth;
+}
+
+// Hueco vertical libre entre `refY` y el texto más cercano por encima (cualquier X — un renglón
+// de la fila siguiente puede empezar más a la izquierda o más a la derecha que la firma y aun
+// así quedar atropellado si el sello es más alto que el hueco real). Devuelve Infinity si no hay
+// nada por encima en la página (ej. firma en la última línea).
+function getAvailableGapAbove(items, refY) {
+  let nearest = Infinity;
+  for (const it of items) {
+    const y = it.transform[5];
+    if (y > refY + 1 && y < nearest) nearest = y;
+  }
+  return nearest === Infinity ? Infinity : nearest - refY;
+}
+
 // Detecta automáticamente dónde va la firma en un PDF concreto: busca cada ocurrencia del
-// texto ancla (labelRegex) y ubica la línea "____" inmediatamente encima. Robusto ante
-// reflow del documento (contenido variable que empuja el bloque de firma a otra posición o
-// página) porque no asume coordenadas fijas: las calcula por documento, en cada llamada.
+// texto ancla (labelRegex) y ubica la línea "____" (como item separado, o fusionada en el mismo
+// renglón de la etiqueta) inmediatamente encima o en el mismo renglón. Robusto ante reflow del
+// documento (contenido variable que empuja el bloque de firma a otra posición o página) porque
+// no asume coordenadas fijas: las calcula por documento, en cada llamada. El alto del sello se
+// limita además al hueco vertical real disponible hasta el texto más cercano por encima — nunca
+// asume que hay una celda alta en blanco (ver getAvailableGapAbove).
 async function detectSignLocations(pdfPath, labelRegex) {
   const data = new Uint8Array(await fs.readFile(pdfPath));
   const pdf = await pdfjsLib.getDocument({ data }).promise;
   const locations = [];
+
+  // pdf-lib desechable, solo para medir proporciones de ancho de texto con Helvetica (ver
+  // measureFusedUnderscoreOffset) — no se guarda ni se usa para nada más.
+  const measureDoc = await PDFDocument.create();
+  const measureFont = await measureDoc.embedFont(StandardFonts.Helvetica);
 
   for (let pageNum = 1; pageNum <= pdf.numPages; pageNum++) {
     const page = await pdf.getPage(pageNum);
@@ -90,12 +142,19 @@ async function detectSignLocations(pdfPath, labelRegex) {
           && Math.abs(i.transform[4] - labX) < 160)
         .sort((a, b) => a.transform[5] - b.transform[5])[0];
 
+      const fusedMatch = label.str.match(FUSED_UNDERSCORE_RE);
+
       let x0, x1, lineY, boxHeight = SIGN_BOX_HEIGHT;
 
       if (underline) {
         x0 = underline.transform[4];
         x1 = underline.transform[4] + (underline.width || 0);
         lineY = underline.transform[5];
+      } else if (fusedMatch) {
+        const offset = measureFusedUnderscoreOffset(measureFont, label.str, fusedMatch[1], label.width || 0);
+        x0 = labX + offset;
+        x1 = labX + (label.width || 0);
+        lineY = labY; // el guion bajo está en el MISMO renglón que la etiqueta, no arriba
       } else {
         const box = await detectVectorBoxAbove(page, labX, labY);
         if (box) {
@@ -111,6 +170,9 @@ async function detectSignLocations(pdfPath, labelRegex) {
         }
       }
 
+      const gapAbove = getAvailableGapAbove(items, lineY);
+      boxHeight = Math.max(MIN_BOX_HEIGHT, Math.min(boxHeight, gapAbove - GAP_MARGIN));
+
       const width = Math.min(SIGN_BOX_MAX_WIDTH, x1 - x0);
       const midX = (x0 + x1) / 2;
 
@@ -119,7 +181,7 @@ async function detectSignLocations(pdfPath, labelRegex) {
         x: +(midX - width / 2).toFixed(1),
         y: +(lineY + 2).toFixed(1),
         width,
-        height: boxHeight,
+        height: +boxHeight.toFixed(1),
       });
     }
   }
@@ -175,7 +237,6 @@ async function stampSignature(originalPdfPath, croppedSignatureBuffer, signLocat
 
   const modeScale = STAMP_SCALE_BY_MODE[signatureMode] ?? STAMP_SCALE_BY_MODE.draw;
   const font = await pdfDoc.embedFont(StandardFonts.Helvetica);
-  const fontBold = await pdfDoc.embedFont(StandardFonts.HelveticaBold);
   const shortId = recordId ? `${String(recordId).slice(0, 8)}...` : '';
 
   for (const loc of signLocations) {
@@ -192,17 +253,10 @@ async function stampSignature(originalPdfPath, croppedSignatureBuffer, signLocat
 
     const textX = loc.x + BRACKET_ZONE_WIDTH;
     if (recordId) {
-      page.drawText('Firmado por:', {
-        x: textX,
-        y: loc.y + loc.height - LABEL_ROW_HEIGHT + 1,
-        size: 6,
-        font: fontBold,
-        color: rgb(0.15, 0.15, 0.15),
-      });
       page.drawText(shortId, {
         x: textX,
-        y: loc.y + 2,
-        size: 5.5,
+        y: loc.y + 1,
+        size: 5,
         font,
         color: BRAND_BLUE,
       });
@@ -211,7 +265,7 @@ async function stampSignature(originalPdfPath, croppedSignatureBuffer, signLocat
     const sigAreaX = textX;
     const sigAreaY = loc.y + ID_ROW_HEIGHT;
     const sigAreaWidth = loc.width - BRACKET_ZONE_WIDTH;
-    const sigAreaHeight = loc.height - LABEL_ROW_HEIGHT - ID_ROW_HEIGHT;
+    const sigAreaHeight = loc.height - ID_ROW_HEIGHT;
 
     const dims = sigImage.scaleToFit(sigAreaWidth * modeScale, sigAreaHeight * modeScale);
     page.drawImage(sigImage, {
