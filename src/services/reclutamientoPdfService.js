@@ -338,7 +338,15 @@ async function stampPsicologoSignature(originalPdfPath, croppedSignatureBuffer, 
     });
 
     if (recordId) {
-      page.drawText(shortId, { x: bracketX, y: loc.y + 1, size: 5, font, color: BRAND_BLUE });
+      // Justo después de la punta horizontal inferior del corchete (bracketX + su ancho), no
+      // desde su arranque — si no, el texto queda tapado por el trazo del corchete.
+      page.drawText(shortId, {
+        x: bracketX + PSICOLOGO_BRACKET_TICK,
+        y: loc.y + 1,
+        size: 5,
+        font,
+        color: BRAND_BLUE,
+      });
     }
 
     page.drawImage(sigImage, {
