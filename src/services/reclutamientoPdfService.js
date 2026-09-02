@@ -331,14 +331,18 @@ async function stampPsicologoSignature(originalPdfPath, croppedSignatureBuffer, 
       page.drawText(shortId, { x: textX, y: loc.y + 1, size: 5, font, color: BRAND_BLUE });
     }
 
-    const sigAreaX = textX;
+    // El recuadro detectado ya queda centrado sobre la etiqueta "PSICÓLOGO" (detectSignLocations
+    // lo arma a partir de la fila completa de la tabla, capada a SIGN_BOX_MAX_WIDTH y centrada en
+    // esa fila — coincide con el centro real de la etiqueta). Por eso centrar la firma en TODO el
+    // ancho del recuadro (no solo en el tramo libre después del corchete) es tomar la etiqueta
+    // como referencia: el corchete queda como marca decorativa en el borde izquierdo, sin atar la
+    // posición de la firma a él.
     const sigAreaY = loc.y + ID_ROW_HEIGHT;
-    const sigAreaWidth = loc.width - PSICOLOGO_BRACKET_ZONE_WIDTH;
     const sigAreaHeight = loc.height - ID_ROW_HEIGHT;
 
-    const dims = sigImage.scaleToFit(sigAreaWidth * modeScale, sigAreaHeight * modeScale);
+    const dims = sigImage.scaleToFit(loc.width * modeScale, sigAreaHeight * modeScale);
     page.drawImage(sigImage, {
-      x: sigAreaX,
+      x: loc.x + (loc.width - dims.width) / 2,
       y: sigAreaY + (sigAreaHeight - dims.height) / 2 + PSICOLOGO_AJUSTE_VERTICAL,
       width: dims.width,
       height: dims.height,
