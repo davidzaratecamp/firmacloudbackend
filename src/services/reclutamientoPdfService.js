@@ -295,25 +295,48 @@ async function stampSignature(originalPdfPath, croppedSignatureBuffer, signLocat
 
 // Estampado de la firma de Selección/Administrador sobre "PSICÓLOGO" — distinto del de
 // stampSignature() (usado para la firma del candidato) por pedido explícito del usuario
-// (2026-09-02): la firma ocupa toda la caja detectada, centrada en ambos ejes y sin la fila
-// angosta de ID pegada al corchete (más grande que antes); el ID de FirmaCloud se estampa aparte,
-// como pie de página centrado, en vez de repetir el encabezado que ya dejó la firma del
-// candidato en la parte de arriba de cada página.
+// (2026-09-02): además del corchete azul + ID truncado (mismo lenguaje visual que la firma del
+// candidato — ver BRACKET_TICK/ID_ROW_HEIGHT), la firma queda CENTRADA horizontalmente dentro de
+// su área (antes arrancaba pegada al corchete) y desplazada 3pt hacia arriba (ajuste pedido tras
+// revisar el resultado real — centrado puramente aritmético no se veía centrado a simple vista).
+// El ID de FirmaCloud se estampa ADEMÁS como pie de página centrado, en vez de repetir el
+// encabezado que ya dejó la firma del candidato en la parte de arriba de cada página.
+const PSICOLOGO_AJUSTE_VERTICAL = 3;
+
 async function stampPsicologoSignature(originalPdfPath, croppedSignatureBuffer, signLocations, recordId, signatureMode) {
   const pdfDoc = await PDFDocument.load(await fs.readFile(originalPdfPath));
   const sigImage = await pdfDoc.embedPng(croppedSignatureBuffer);
   const pages = pdfDoc.getPages();
   const font = await pdfDoc.embedFont(StandardFonts.Helvetica);
   const modeScale = STAMP_SCALE_BY_MODE[signatureMode] ?? STAMP_SCALE_BY_MODE.draw;
+  const shortId = recordId ? `${String(recordId).slice(0, 8)}...` : '';
 
   for (const loc of signLocations) {
     const page = pages[loc.page];
     if (!page) continue;
 
-    const dims = sigImage.scaleToFit(loc.width * modeScale, loc.height * modeScale);
+    const bracketPath = `M ${BRACKET_TICK} 0 L ${BRACKET_RADIUS} 0 Q 0 0 0 ${BRACKET_RADIUS} L 0 ${loc.height - BRACKET_RADIUS} Q 0 ${loc.height} ${BRACKET_RADIUS} ${loc.height} L ${BRACKET_TICK} ${loc.height}`;
+    page.drawSvgPath(bracketPath, {
+      x: loc.x,
+      y: loc.y + loc.height,
+      borderColor: BRAND_BLUE,
+      borderWidth: 1.2,
+    });
+
+    const textX = loc.x + BRACKET_ZONE_WIDTH;
+    if (recordId) {
+      page.drawText(shortId, { x: textX, y: loc.y + 1, size: 5, font, color: BRAND_BLUE });
+    }
+
+    const sigAreaX = textX;
+    const sigAreaY = loc.y + ID_ROW_HEIGHT;
+    const sigAreaWidth = loc.width - BRACKET_ZONE_WIDTH;
+    const sigAreaHeight = loc.height - ID_ROW_HEIGHT;
+
+    const dims = sigImage.scaleToFit(sigAreaWidth * modeScale, sigAreaHeight * modeScale);
     page.drawImage(sigImage, {
-      x: loc.x + (loc.width - dims.width) / 2,
-      y: loc.y + (loc.height - dims.height) / 2,
+      x: sigAreaX + (sigAreaWidth - dims.width) / 2,
+      y: sigAreaY + (sigAreaHeight - dims.height) / 2 + PSICOLOGO_AJUSTE_VERTICAL,
       width: dims.width,
       height: dims.height,
       opacity: 1,
