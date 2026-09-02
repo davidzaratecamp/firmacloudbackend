@@ -293,6 +293,55 @@ async function stampSignature(originalPdfPath, croppedSignatureBuffer, signLocat
   return await pdfDoc.save();
 }
 
+// Estampado de la firma de Selección/Administrador sobre "PSICÓLOGO" — distinto del de
+// stampSignature() (usado para la firma del candidato) por pedido explícito del usuario
+// (2026-09-02): la firma ocupa toda la caja detectada, centrada en ambos ejes y sin la fila
+// angosta de ID pegada al corchete (más grande que antes); el ID de FirmaCloud se estampa aparte,
+// como pie de página centrado, en vez de repetir el encabezado que ya dejó la firma del
+// candidato en la parte de arriba de cada página.
+async function stampPsicologoSignature(originalPdfPath, croppedSignatureBuffer, signLocations, recordId, signatureMode) {
+  const pdfDoc = await PDFDocument.load(await fs.readFile(originalPdfPath));
+  const sigImage = await pdfDoc.embedPng(croppedSignatureBuffer);
+  const pages = pdfDoc.getPages();
+  const font = await pdfDoc.embedFont(StandardFonts.Helvetica);
+  const modeScale = STAMP_SCALE_BY_MODE[signatureMode] ?? STAMP_SCALE_BY_MODE.draw;
+
+  for (const loc of signLocations) {
+    const page = pages[loc.page];
+    if (!page) continue;
+
+    const dims = sigImage.scaleToFit(loc.width * modeScale, loc.height * modeScale);
+    page.drawImage(sigImage, {
+      x: loc.x + (loc.width - dims.width) / 2,
+      y: loc.y + (loc.height - dims.height) / 2,
+      width: dims.width,
+      height: dims.height,
+      opacity: 1,
+    });
+  }
+
+  if (recordId && signLocations.length) {
+    const footerText = `Firma Selección — FirmaCloud ID: ${recordId}`;
+    const size = 8;
+    const gray = rgb(0.35, 0.35, 0.35);
+    const width = font.widthOfTextAtSize(footerText, size);
+    const paginasFirmadas = [...new Set(signLocations.map((loc) => loc.page))];
+    for (const pageIndex of paginasFirmadas) {
+      const page = pages[pageIndex];
+      if (!page) continue;
+      page.drawText(footerText, {
+        x: (page.getWidth() - width) / 2,
+        y: 16,
+        size,
+        font,
+        color: gray,
+      });
+    }
+  }
+
+  return await pdfDoc.save();
+}
+
 async function getPageCount(pdfPath) {
   const pdfDoc = await PDFDocument.load(await fs.readFile(pdfPath));
   return pdfDoc.getPageCount();
@@ -302,6 +351,7 @@ module.exports = {
   detectSignLocations,
   cropSignatureToContent,
   stampSignature,
+  stampPsicologoSignature,
   getPageCount,
   ANCHOR_CV: /FIRMA\s+DEL\s+CANDIDATO/i,
   ANCHOR_TRATAMIENTO: /^FIRMA$/i,
