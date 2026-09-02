@@ -4,11 +4,15 @@ const fs = require('fs').promises;
 const db = require('../config/database');
 const { generateSecureToken, getTokenExpiry } = require('../utils/token');
 const { hashBuffer } = require('../utils/hash');
-const { detectSignLocations, getPageCount, ANCHOR_CV, ANCHOR_TRATAMIENTO } = require('../services/reclutamientoPdfService');
+const {
+  detectSignLocations, cropSignatureToContent, stampSignature, getPageCount,
+  ANCHOR_CV, ANCHOR_TRATAMIENTO, ANCHOR_PSICOLOGO,
+} = require('../services/reclutamientoPdfService');
 const { sendReclutamientoEmail } = require('../services/reclutamientoEmailService');
 const { sendReclutamientoWhatsApp } = require('../services/reclutamientoWhatsappService');
 
 const UPLOADS_DIR = path.resolve(process.env.UPLOADS_DIR || path.join(__dirname, '../../uploads'));
+const SIGNED_DIR = path.resolve(process.env.SIGNED_DIR || path.join(__dirname, '../../signed'));
 
 // Envío desde Hydra: recibe los 2 PDFs YA armados (hoja de vida + tratamiento de datos) con
 // los datos del candidato plasmados, valida que cada uno tenga su ancla de firma detectable,
@@ -143,6 +147,61 @@ async function getCandidato(req, res, next) {
   }
 }
 
+// Firma de selección/administrador sobre la hoja de vida, posterior a la del candidato. Parte
+// SIEMPRE de cv_signed_path (solo firma del candidato, nunca se sobrescribe) — así la acción es
+// idempotente: re-firmar (ej. porque firmó la persona equivocada) nunca apila un sello encima de
+// otro, siempre reemplaza cv_final_signed_path desde cero.
+async function firmarPsicologo(req, res, next) {
+  try {
+    const { id } = req.params;
+    const { signatureDataUrl, signatureMode, firmadoPor } = req.body;
+
+    if (!signatureDataUrl) return res.status(400).json({ error: 'Firma requerida' });
+    if (typeof signatureDataUrl !== 'string' || !signatureDataUrl.startsWith('data:image/png;base64,'))
+      return res.status(400).json({ error: 'Formato de firma inválido' });
+    if (Buffer.byteLength(signatureDataUrl, 'utf8') > 1.5 * 1024 * 1024)
+      return res.status(400).json({ error: 'Imagen de firma demasiado grande' });
+
+    const [rows] = await db.query('SELECT * FROM reclutamiento_candidatos WHERE id = ?', [id]);
+    if (!rows.length) return res.status(404).json({ error: 'No encontrado' });
+
+    const candidato = rows[0];
+    if (candidato.status !== 'signed') {
+      return res.status(409).json({ error: 'El candidato aún no ha firmado la hoja de vida y el tratamiento de datos' });
+    }
+
+    const locations = await detectSignLocations(candidato.cv_signed_path, ANCHOR_PSICOLOGO);
+    if (!locations.length) {
+      return res.status(500).json({ error: 'No se detectó "PSICÓLOGO" en la hoja de vida. Verifica la plantilla.' });
+    }
+
+    const base64Data = signatureDataUrl.replace(/^data:image\/png;base64,/, '');
+    const croppedSignature = await cropSignatureToContent(Buffer.from(base64Data, 'base64'));
+    const cvFinalBytes = await stampSignature(candidato.cv_signed_path, croppedSignature, locations, candidato.id, signatureMode);
+
+    const cvFinalPath = path.join(SIGNED_DIR, `RECLUTAMIENTO-CV-FINAL-${candidato.id}.pdf`);
+    const sigImagePath = path.join(SIGNED_DIR, `RECLUTAMIENTO-SIG-PSICOLOGO-${candidato.id}.png`);
+    await Promise.all([
+      fs.writeFile(cvFinalPath, cvFinalBytes),
+      fs.writeFile(sigImagePath, croppedSignature),
+    ]);
+
+    await db.query(
+      `UPDATE reclutamiento_candidatos SET
+        cv_final_signed_path = ?,
+        psicologo_signed_at = ?,
+        psicologo_signed_by = ?,
+        psicologo_signature_image_path = ?
+       WHERE id = ?`,
+      [cvFinalPath, new Date(), firmadoPor || null, sigImagePath, candidato.id]
+    );
+
+    res.json({ ok: true, message: 'Hoja de vida firmada' });
+  } catch (err) {
+    next(err);
+  }
+}
+
 function downloadDocumento(tipo) {
   return async function (req, res, next) {
     try {
@@ -150,7 +209,9 @@ function downloadDocumento(tipo) {
       if (!rows.length) return res.status(404).json({ error: 'No encontrado' });
 
       const candidato = rows[0];
-      const signedPath = tipo === 'cv' ? candidato.cv_signed_path : candidato.tratamiento_signed_path;
+      const signedPath = tipo === 'cv'
+        ? (candidato.cv_final_signed_path || candidato.cv_signed_path)
+        : candidato.tratamiento_signed_path;
       if (!signedPath) return res.status(400).json({ error: 'Documento aún no firmado' });
 
       const buffer = await fs.readFile(path.resolve(signedPath));
@@ -168,6 +229,7 @@ module.exports = {
   sendCandidato,
   listCandidatos,
   getCandidato,
+  firmarPsicologo,
   downloadCv: downloadDocumento('cv'),
   downloadTratamiento: downloadDocumento('tratamiento'),
   getPageCount,

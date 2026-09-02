@@ -6,7 +6,7 @@ const auth = require('../middleware/auth');
 const hydraApiKeyOrAuth = require('../middleware/hydraApiKeyOrAuth');
 const requireRole = require('../middleware/requireRole');
 const {
-  sendCandidato, listCandidatos, getCandidato, downloadCv, downloadTratamiento,
+  sendCandidato, listCandidatos, getCandidato, downloadCv, downloadTratamiento, firmarPsicologo,
 } = require('../controllers/reclutamientoController');
 
 const uploadPdfs = multer({
@@ -29,6 +29,10 @@ router.post(
 // Named sub-routes MUST come before /:id
 router.get('/:id/download/cv', hydraApiKeyOrAuth, requireReclutamientoAccess, downloadCv);
 router.get('/:id/download/tratamiento', hydraApiKeyOrAuth, requireReclutamientoAccess, downloadTratamiento);
+// Firma de selección/administrador sobre la hoja de vida ya firmada por el candidato — Hydra
+// llama con HYDRA_API_KEY (nunca con la credencial individual de su usuario); la identidad de
+// quien firma viaja como dato en el body (firmadoPor), no como autenticación.
+router.post('/:id/firmar-psicologo', hydraApiKeyOrAuth, requireReclutamientoAccess, firmarPsicologo);
 router.get('/:id', hydraApiKeyOrAuth, requireReclutamientoAccess, getCandidato);
 
 router.get('/', auth, requireReclutamientoAccess, listCandidatos);

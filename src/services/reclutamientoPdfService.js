@@ -164,8 +164,13 @@ async function detectSignLocations(pdfPath, labelRegex) {
           lineY = box.y0;
           boxHeight = Math.min(SIGN_BOX_HEIGHT, box.y1 - box.y0 - margin * 2);
         } else {
+          // Sin línea aparte ni recuadro vectorial encima: caso de una etiqueta "suelta" con
+          // espacio en blanco arriba (ej. "PSICÓLOGO" en la hoja de vida, campo de uso interno
+          // de selección). El ancho de la etiqueta suele ser mucho menor que el espacio en
+          // blanco real disponible, así que se ensancha a un mínimo razonable en vez de limitar
+          // la firma al ancho de la palabra impresa.
           x0 = labX;
-          x1 = labX + (label.width || 180);
+          x1 = labX + Math.max(label.width || 0, 150);
           lineY = labY + 13;
         }
       }
@@ -300,4 +305,8 @@ module.exports = {
   getPageCount,
   ANCHOR_CV: /FIRMA\s+DEL\s+CANDIDATO/i,
   ANCHOR_TRATAMIENTO: /^FIRMA$/i,
+  // Firma de selección/administrador sobre la hoja de vida, posterior a la del candidato — el
+  // label "PSICÓLOGO" ya existe en la plantilla (plantilla/hojavida.pdf de Hydra), dejado en
+  // blanco a propósito para uso interno del equipo de selección.
+  ANCHOR_PSICOLOGO: /PSIC[OÓ]LOGO/i,
 };
