@@ -295,13 +295,16 @@ async function stampSignature(originalPdfPath, croppedSignatureBuffer, signLocat
 
 // Estampado de la firma de Selección/Administrador sobre "PSICÓLOGO" — distinto del de
 // stampSignature() (usado para la firma del candidato) por pedido explícito del usuario
-// (2026-09-02): además del corchete azul + ID truncado (mismo lenguaje visual que la firma del
-// candidato — ver BRACKET_TICK/ID_ROW_HEIGHT), la firma queda CENTRADA horizontalmente dentro de
-// su área (antes arrancaba pegada al corchete) y desplazada 3pt hacia arriba (ajuste pedido tras
-// revisar el resultado real — centrado puramente aritmético no se veía centrado a simple vista).
-// El ID de FirmaCloud se estampa ADEMÁS como pie de página centrado, en vez de repetir el
-// encabezado que ya dejó la firma del candidato en la parte de arriba de cada página.
+// (2026-09-02): corchete azul con puntas horizontales más largas (constantes propias, no las
+// compartidas BRACKET_TICK/BRACKET_ZONE_WIDTH — no se toca el estampado del candidato) + ID
+// truncado, firma pegada al corchete (no centrada en toda la caja: con cajas anchas quedaba muy
+// lejos del corchete) y desplazada 3pt hacia arriba sobre el centrado vertical aritmético (ajuste
+// pedido tras revisar el resultado real). El ID de FirmaCloud se estampa ADEMÁS como pie de
+// página centrado, en vez de repetir el encabezado que ya deja la firma del candidato arriba de
+// cada página.
 const PSICOLOGO_AJUSTE_VERTICAL = 3;
+const PSICOLOGO_BRACKET_TICK = 12; // el doble del BRACKET_TICK del candidato (6)
+const PSICOLOGO_BRACKET_ZONE_WIDTH = 16; // >= PSICOLOGO_BRACKET_TICK + margen, evita que la firma tape la punta
 
 async function stampPsicologoSignature(originalPdfPath, croppedSignatureBuffer, signLocations, recordId, signatureMode) {
   const pdfDoc = await PDFDocument.load(await fs.readFile(originalPdfPath));
@@ -315,7 +318,7 @@ async function stampPsicologoSignature(originalPdfPath, croppedSignatureBuffer, 
     const page = pages[loc.page];
     if (!page) continue;
 
-    const bracketPath = `M ${BRACKET_TICK} 0 L ${BRACKET_RADIUS} 0 Q 0 0 0 ${BRACKET_RADIUS} L 0 ${loc.height - BRACKET_RADIUS} Q 0 ${loc.height} ${BRACKET_RADIUS} ${loc.height} L ${BRACKET_TICK} ${loc.height}`;
+    const bracketPath = `M ${PSICOLOGO_BRACKET_TICK} 0 L ${BRACKET_RADIUS} 0 Q 0 0 0 ${BRACKET_RADIUS} L 0 ${loc.height - BRACKET_RADIUS} Q 0 ${loc.height} ${BRACKET_RADIUS} ${loc.height} L ${PSICOLOGO_BRACKET_TICK} ${loc.height}`;
     page.drawSvgPath(bracketPath, {
       x: loc.x,
       y: loc.y + loc.height,
@@ -323,19 +326,19 @@ async function stampPsicologoSignature(originalPdfPath, croppedSignatureBuffer, 
       borderWidth: 1.2,
     });
 
-    const textX = loc.x + BRACKET_ZONE_WIDTH;
+    const textX = loc.x + PSICOLOGO_BRACKET_ZONE_WIDTH;
     if (recordId) {
       page.drawText(shortId, { x: textX, y: loc.y + 1, size: 5, font, color: BRAND_BLUE });
     }
 
     const sigAreaX = textX;
     const sigAreaY = loc.y + ID_ROW_HEIGHT;
-    const sigAreaWidth = loc.width - BRACKET_ZONE_WIDTH;
+    const sigAreaWidth = loc.width - PSICOLOGO_BRACKET_ZONE_WIDTH;
     const sigAreaHeight = loc.height - ID_ROW_HEIGHT;
 
     const dims = sigImage.scaleToFit(sigAreaWidth * modeScale, sigAreaHeight * modeScale);
     page.drawImage(sigImage, {
-      x: sigAreaX + (sigAreaWidth - dims.width) / 2,
+      x: sigAreaX,
       y: sigAreaY + (sigAreaHeight - dims.height) / 2 + PSICOLOGO_AJUSTE_VERTICAL,
       width: dims.width,
       height: dims.height,
