@@ -5,7 +5,7 @@ const db = require('../config/database');
 const { generateSecureToken, getTokenExpiry } = require('../utils/token');
 const { hashBuffer } = require('../utils/hash');
 const {
-  detectSignLocations, cropSignatureToContent, stampSignature, getPageCount,
+  detectSignLocations, cropSignatureToContent, stampPsicologoSignature, getPageCount,
   ANCHOR_CV, ANCHOR_TRATAMIENTO, ANCHOR_PSICOLOGO,
 } = require('../services/reclutamientoPdfService');
 const { sendReclutamientoEmail } = require('../services/reclutamientoEmailService');
@@ -177,7 +177,7 @@ async function firmarPsicologo(req, res, next) {
 
     const base64Data = signatureDataUrl.replace(/^data:image\/png;base64,/, '');
     const croppedSignature = await cropSignatureToContent(Buffer.from(base64Data, 'base64'));
-    const cvFinalBytes = await stampSignature(candidato.cv_signed_path, croppedSignature, locations, candidato.id, signatureMode);
+    const cvFinalBytes = await stampPsicologoSignature(candidato.cv_signed_path, croppedSignature, locations, candidato.id, signatureMode);
 
     const cvFinalPath = path.join(SIGNED_DIR, `RECLUTAMIENTO-CV-FINAL-${candidato.id}.pdf`);
     const sigImagePath = path.join(SIGNED_DIR, `RECLUTAMIENTO-SIG-PSICOLOGO-${candidato.id}.png`);
