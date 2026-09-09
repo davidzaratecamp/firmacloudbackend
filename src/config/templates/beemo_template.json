@@ -1,0 +1,33 @@
+{
+  "templateFile": "beemo.pdf",
+  "expectedPages": 3,
+  "signPage": 1,
+  "signField": { "x": 90, "y": 256, "width": 300, "height": 14 },
+  "extraSignLocations": [
+    { "page": 2, "x": 90, "y": 325, "width": 300, "height": 14 }
+  ],
+  "fields": [
+    { "dataPath": "recipientName", "page": 1, "x": 75, "y": 667.2, "fontSize": 10 },
+    { "dataPath": "agente.nombre", "page": 1, "x": 365, "y": 667.2, "fontSize": 10 },
+    { "dataPath": "consentimiento.fechaVigencia", "label": "Vigente hasta", "required": true, "type": "date", "page": 1, "x": 120, "y": 435.8, "fontSize": 10 },
+    { "dataPath": "agente.nombre", "label": "Nombre del Agente", "required": true, "page": 1, "x": 143, "y": 403.5, "fontSize": 10 },
+    { "dataPath": "agente.npn", "label": "Número de productor nacional del Agente (NPN)", "required": true, "page": 1, "x": 235, "y": 386.5, "fontSize": 10 },
+    { "dataPath": "agente.telefono", "label": "Teléfono del Agente", "required": true, "page": 1, "x": 146, "y": 369.8, "fontSize": 10 },
+    { "dataPath": "agente.correo", "label": "Correo del Agente", "required": true, "page": 1, "x": 139, "y": 353.1, "fontSize": 10 },
+    { "dataPath": "recipientName", "page": 1, "x": 350, "y": 310.5, "fontSize": 10 },
+    { "dataPath": "recipientPhone", "page": 1, "x": 146, "y": 293.9, "fontSize": 10 },
+    { "dataPath": "recipientEmail", "page": 1, "x": 139, "y": 277.2, "fontSize": 10 },
+
+    { "dataPath": "plan.compania", "label": "Compañía / Carrier", "required": true, "page": 2, "x": 140, "y": 521.3, "fontSize": 10 },
+    { "dataPath": "plan.nombre", "label": "Nombre del plan", "required": true, "page": 2, "x": 131, "y": 504.2, "fontSize": 10 },
+    { "dataPath": "plan.deducibleSalud", "label": "Deducible de salud", "required": false, "page": 2, "x": 140, "y": 487.5, "fontSize": 10 },
+    { "dataPath": "plan.deducibleMedicamentos", "label": "Deducible de medicamentos", "required": false, "page": 2, "x": 178, "y": 470.9, "fontSize": 10 },
+    { "dataPath": "plan.desembolsoMaximo", "label": "Desembolso máximo (out-of-pocket)", "required": false, "page": 2, "x": 212, "y": 454.2, "fontSize": 10 },
+    { "dataPath": "plan.primaMensual", "label": "Prima mensual a pagar", "required": true, "page": 2, "x": 156, "y": 437.5, "fontSize": 10 },
+    { "dataPath": "plan.ingresoHogar", "label": "Ingreso del hogar fiscal usado para la cotización", "required": false, "page": 2, "x": 256, "y": 420.8, "fontSize": 10 },
+    { "dataPath": "recipientName", "page": 2, "x": 75, "y": 667.8, "fontSize": 10 },
+    { "dataPath": "recipientName", "page": 2, "x": 349, "y": 379.7, "fontSize": 10 },
+    { "dataPath": "recipientPhone", "page": 2, "x": 146, "y": 363.0, "fontSize": 10 },
+    { "dataPath": "recipientEmail", "page": 2, "x": 139, "y": 346.3, "fontSize": 10 }
+  ]
+}
