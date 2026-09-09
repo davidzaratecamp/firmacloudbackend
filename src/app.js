@@ -19,6 +19,8 @@ const hrContractsRoutes = require('./routes/hrContracts');
 const hrPublicRoutes = require('./routes/hrPublic');
 const reclutamientoRoutes = require('./routes/reclutamiento');
 const reclutamientoPublicRoutes = require('./routes/reclutamientoPublic');
+const beemoRoutes = require('./routes/beemo');
+const beemoPublicRoutes = require('./routes/beemoPublic');
 const errorHandler = require('./middleware/errorHandler');
 
 const app = express();
@@ -64,6 +66,8 @@ app.use('/api/rrhh/contratos', hrContractsRoutes);
 app.use('/api/rrhh-sign', hrPublicRoutes);
 app.use('/api/reclutamiento', reclutamientoRoutes);
 app.use('/api/reclutamiento-sign', reclutamientoPublicRoutes);
+app.use('/api/beemo', beemoRoutes);
+app.use('/api/beemo-sign', beemoPublicRoutes);
 
 app.get('/api/health', (req, res) => res.json({ status: 'ok', timestamp: new Date().toISOString() }));
 
