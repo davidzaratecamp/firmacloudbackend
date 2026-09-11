@@ -8,6 +8,7 @@ const { sendSignatureRequest } = require('../services/emailService');
 const { sendSignatureWhatsApp } = require('../services/whatsappService');
 const { generateCertificate, fillContratoActivacion, getContratoSignConfig } = require('../services/pdfService');
 const { triggerWebhook } = require('../services/webhookService');
+const { buildDailyTrend } = require('../utils/dailyTrend');
 const { getServerLocation } = require('../utils/serverLocation');
 
 const UPLOADS_DIR = path.resolve(process.env.UPLOADS_DIR || path.join(__dirname, '../../uploads'));
@@ -333,7 +334,14 @@ async function getDashboardStats(req, res, next) {
       ORDER BY sr.created_at DESC LIMIT 5
     `, agentParams);
 
-    res.json({ stats: stats[0], recent });
+    const [trendRows] = await db.query(`
+      SELECT DATE(sent_at) AS day, COUNT(*) AS count
+      FROM signature_requests
+      WHERE npn_name IS NULL AND sent_at >= CURDATE() - INTERVAL 13 DAY ${isAdmin ? '' : 'AND agent_id = ?'}
+      GROUP BY DATE(sent_at)
+    `, agentParams);
+
+    res.json({ stats: stats[0], recent, trend: buildDailyTrend(trendRows) });
   } catch (err) {
     next(err);
   }

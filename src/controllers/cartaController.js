@@ -4,6 +4,7 @@ const XLSX = require('xlsx');
 const db = require('../config/database');
 const { resolveNpnTemplate, dispatchCartaToRecipient } = require('../services/cartaDispatchService');
 const { getServerLocation } = require('../utils/serverLocation');
+const { buildDailyTrend } = require('../utils/dailyTrend');
 
 // Cartas enviadas antes de existir carta_template_snapshot no tienen fila ahí — todas
 // se enviaron con la plantilla/marca "oscar" (la única que existía en ese momento).
@@ -135,6 +136,43 @@ async function listCartas(req, res, next) {
     );
 
     res.json({ data: rows, total, page: parseInt(page), limit: parseInt(limit) });
+  } catch (err) {
+    next(err);
+  }
+}
+
+async function getCartasDashboard(req, res, next) {
+  try {
+    const ownerFilter = req.user.role !== 'admin' ? 'AND sr.agent_id = ?' : '';
+    const ownerParams = req.user.role !== 'admin' ? [req.user.id] : [];
+
+    const [stats] = await db.query(`
+      SELECT
+        COUNT(*) AS total,
+        SUM(status = 'pending') AS pending,
+        SUM(status = 'viewed') AS viewed,
+        SUM(status = 'signed') AS signed,
+        SUM(status = 'expired') AS expired,
+        SUM(status = 'failed') AS failed
+      FROM signature_requests sr
+      WHERE sr.npn_name IS NOT NULL ${ownerFilter}
+    `, ownerParams);
+
+    const [recent] = await db.query(`
+      SELECT sr.id, sr.client_name, sr.npn_name, sr.status, sr.sent_at
+      FROM signature_requests sr
+      WHERE sr.npn_name IS NOT NULL ${ownerFilter}
+      ORDER BY sr.created_at DESC LIMIT 5
+    `, ownerParams);
+
+    const [trendRows] = await db.query(`
+      SELECT DATE(sr.sent_at) AS day, COUNT(*) AS count
+      FROM signature_requests sr
+      WHERE sr.npn_name IS NOT NULL AND sr.sent_at >= CURDATE() - INTERVAL 13 DAY ${ownerFilter}
+      GROUP BY DATE(sr.sent_at)
+    `, ownerParams);
+
+    res.json({ stats: stats[0], recent, trend: buildDailyTrend(trendRows) });
   } catch (err) {
     next(err);
   }
@@ -295,4 +333,4 @@ async function deleteCarta(req, res, next) {
   }
 }
 
-module.exports = { sendCarta, listCartas, exportCartas, getCartaDetail, getCartaPhoto, downloadSignedCarta, deleteCarta };
+module.exports = { sendCarta, listCartas, getCartasDashboard, exportCartas, getCartaDetail, getCartaPhoto, downloadSignedCarta, deleteCarta };

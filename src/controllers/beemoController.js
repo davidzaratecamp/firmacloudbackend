@@ -7,6 +7,7 @@ const { hashBuffer } = require('../utils/hash');
 const { fillBeemoTemplate, getBeemoSignConfig } = require('../services/beemoPdfService');
 const { sendBeemoSignatureRequest } = require('../services/beemoEmailService');
 const { sendBeemoSignatureWhatsApp } = require('../services/beemoWhatsappService');
+const { buildDailyTrend } = require('../utils/dailyTrend');
 
 const UPLOADS_DIR = path.resolve(process.env.UPLOADS_DIR || path.join(__dirname, '../../uploads'));
 
@@ -289,8 +290,17 @@ async function getStats(req, res, next) {
     const counts = { pending: 0, viewed: 0, signed: 0 };
     for (const row of rows) counts[row.status] = row.count;
 
+    const dateFilter = req.user.role !== 'admin' ? 'AND agent_id = ?' : '';
+    const [trendRows] = await db.query(
+      `SELECT DATE(sent_at) AS day, COUNT(*) AS count FROM beemo_documents
+       WHERE sent_at >= CURDATE() - INTERVAL 13 DAY ${dateFilter}
+       GROUP BY DATE(sent_at)`,
+      params
+    );
+
     res.json({
       counts,
+      trend: buildDailyTrend(trendRows),
       whatsappReady: Boolean(process.env.BEEMO_WHATSAPP_PHONE_NUMBER_ID && process.env.BEEMO_WHATSAPP_ACCESS_TOKEN),
     });
   } catch (err) {

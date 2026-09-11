@@ -6,7 +6,7 @@ const auth = require('../middleware/auth');
 const hydraApiKeyOrAuth = require('../middleware/hydraApiKeyOrAuth');
 const requireRole = require('../middleware/requireRole');
 const {
-  sendCandidato, listCandidatos, getCandidato, downloadCv, downloadTratamiento, firmarPsicologo,
+  sendCandidato, listCandidatos, getCandidatosDashboard, getCandidato, downloadCv, downloadTratamiento, firmarPsicologo,
 } = require('../controllers/reclutamientoController');
 
 const uploadPdfs = multer({
@@ -27,6 +27,7 @@ router.post(
 );
 
 // Named sub-routes MUST come before /:id
+router.get('/dashboard', auth, requireReclutamientoAccess, getCandidatosDashboard);
 router.get('/:id/download/cv', hydraApiKeyOrAuth, requireReclutamientoAccess, downloadCv);
 router.get('/:id/download/tratamiento', hydraApiKeyOrAuth, requireReclutamientoAccess, downloadTratamiento);
 // Firma de selección/administrador sobre la hoja de vida ya firmada por el candidato — Hydra

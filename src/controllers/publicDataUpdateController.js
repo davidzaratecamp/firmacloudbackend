@@ -2,6 +2,7 @@ const path = require('path');
 const fs = require('fs').promises;
 const db = require('../config/database');
 const { getGenerationByLabel } = require('../services/cartaDispatchService');
+const { buildDailyTrend } = require('../utils/dailyTrend');
 
 const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
@@ -107,6 +108,34 @@ async function listPublicDataUpdates(req, res, next) {
   }
 }
 
+async function getPublicDataUpdatesDashboard(req, res, next) {
+  try {
+    const [stats] = await db.query(`
+      SELECT
+        COUNT(*) AS total,
+        SUM(created_at >= DATE_SUB(NOW(), INTERVAL 30 DAY)) AS last30days
+      FROM public_data_updates
+    `);
+
+    const [recent] = await db.query(`
+      SELECT id, name, npn_name, email, created_at
+      FROM public_data_updates
+      ORDER BY created_at DESC LIMIT 5
+    `);
+
+    const [trendRows] = await db.query(`
+      SELECT DATE(created_at) AS day, COUNT(*) AS count
+      FROM public_data_updates
+      WHERE created_at >= CURDATE() - INTERVAL 13 DAY
+      GROUP BY DATE(created_at)
+    `);
+
+    res.json({ stats: stats[0], recent, trend: buildDailyTrend(trendRows) });
+  } catch (err) {
+    next(err);
+  }
+}
+
 const PHOTO_MIME_BY_EXT = {
   '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg', '.png': 'image/png', '.webp': 'image/webp',
 };
@@ -134,4 +163,4 @@ async function getPublicDataUpdatePhoto(req, res, next) {
   }
 }
 
-module.exports = { submitPublicDataUpdate, listPublicDataUpdates, getPublicDataUpdatePhoto };
+module.exports = { submitPublicDataUpdate, listPublicDataUpdates, getPublicDataUpdatesDashboard, getPublicDataUpdatePhoto };
