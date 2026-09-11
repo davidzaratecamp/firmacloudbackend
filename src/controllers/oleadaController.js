@@ -3,6 +3,7 @@ const db = require('../config/database');
 const { resolveNpnTemplate } = require('../services/cartaDispatchService');
 const { parseRecipientsFile } = require('../services/oleadaFileParser');
 const { sendNextBatch, sendDripBatch, getDailyEmailUsage } = require('../services/oleadaBatchService');
+const { buildDailyTrend } = require('../utils/dailyTrend');
 
 function ownerClause(req, alias = 'o') {
   if (req.user.role === 'admin' || req.user.isApiKey) return { clause: '', params: [] };
@@ -110,6 +111,47 @@ async function listOleadas(req, res, next) {
     );
 
     res.json({ data: rows, total, page: parseInt(page), limit: parseInt(limit) });
+  } catch (err) {
+    next(err);
+  }
+}
+
+async function getOleadasDashboard(req, res, next) {
+  try {
+    const { clause: ownerFilter, params: ownerParams } = ownerClause(req);
+
+    const [stats] = await db.query(`
+      SELECT
+        COUNT(*) AS total,
+        SUM(status = 'active') AS active,
+        SUM(status = 'paused') AS paused,
+        SUM(status = 'completed') AS completed,
+        SUM(status = 'cancelled') AS cancelled,
+        COALESCE(SUM(total_recipients), 0) AS total_recipients,
+        COALESCE(SUM(sent_count), 0) AS sent_count,
+        COALESCE(SUM(failed_count), 0) AS failed_count
+      FROM oleadas o
+      WHERE 1=1 ${ownerFilter}
+    `, ownerParams);
+
+    const [recent] = await db.query(`
+      SELECT o.id, o.name, o.npn_name, o.status, o.total_recipients, o.sent_count, o.created_at
+      FROM oleadas o
+      WHERE 1=1 ${ownerFilter}
+      ORDER BY o.created_at DESC LIMIT 5
+    `, ownerParams);
+
+    // Envíos reales por día (a nivel destinatario, no oleada) — es lo que de verdad
+    // representa "actividad" día a día, distinto de cuándo se creó cada oleada.
+    const [trendRows] = await db.query(`
+      SELECT DATE(r.sent_at) AS day, COUNT(*) AS count
+      FROM oleada_recipients r
+      JOIN oleadas o ON o.id = r.oleada_id
+      WHERE r.row_status = 'sent' AND r.sent_at >= CURDATE() - INTERVAL 13 DAY ${ownerFilter}
+      GROUP BY DATE(r.sent_at)
+    `, ownerParams);
+
+    res.json({ stats: stats[0], recent, trend: buildDailyTrend(trendRows) });
   } catch (err) {
     next(err);
   }
@@ -332,6 +374,7 @@ function setOleadaStatus(newStatus) {
 module.exports = {
   createOleada,
   listOleadas,
+  getOleadasDashboard,
   getDailyUsage,
   getOleadaDetail,
   listOleadaRecipients,

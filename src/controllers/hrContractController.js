@@ -7,6 +7,7 @@ const { hashBuffer } = require('../utils/hash');
 const { getContractSignConfig, getPageCount, detectSignLocations } = require('../services/hrContractPdfService');
 const { sendContractEmail } = require('../services/hrEmailService');
 const { sendContractWhatsApp } = require('../services/hrWhatsappService');
+const { buildDailyTrend } = require('../utils/dailyTrend');
 
 const UPLOADS_DIR = path.resolve(process.env.UPLOADS_DIR || path.join(__dirname, '../../uploads'));
 const SIGNED_DIR = path.resolve(process.env.SIGNED_DIR || path.join(__dirname, '../../signed'));
@@ -129,6 +130,41 @@ async function listContracts(req, res, next) {
   }
 }
 
+async function getContractsDashboard(req, res, next) {
+  try {
+    const ownerFilter = req.user.role !== 'admin' ? 'AND hc.agent_id = ?' : '';
+    const ownerParams = req.user.role !== 'admin' ? [req.user.id] : [];
+
+    const [stats] = await db.query(`
+      SELECT
+        COUNT(*) AS total,
+        SUM(status = 'pending') AS pending,
+        SUM(status = 'viewed') AS viewed,
+        SUM(status = 'signed') AS signed
+      FROM hr_contracts hc
+      WHERE 1=1 ${ownerFilter}
+    `, ownerParams);
+
+    const [recent] = await db.query(`
+      SELECT hc.id, hc.document_name, hc.status, hc.sent_at
+      FROM hr_contracts hc
+      WHERE 1=1 ${ownerFilter}
+      ORDER BY hc.created_at DESC LIMIT 5
+    `, ownerParams);
+
+    const [trendRows] = await db.query(`
+      SELECT DATE(hc.sent_at) AS day, COUNT(*) AS count
+      FROM hr_contracts hc
+      WHERE hc.sent_at >= CURDATE() - INTERVAL 13 DAY ${ownerFilter}
+      GROUP BY DATE(hc.sent_at)
+    `, ownerParams);
+
+    res.json({ stats: stats[0], recent, trend: buildDailyTrend(trendRows) });
+  } catch (err) {
+    next(err);
+  }
+}
+
 async function getContract(req, res, next) {
   try {
     const { id } = req.params;
@@ -197,4 +233,4 @@ async function deleteContract(req, res, next) {
   }
 }
 
-module.exports = { sendDocument, listContracts, getContract, downloadSignedContract, deleteContract };
+module.exports = { sendDocument, listContracts, getContractsDashboard, getContract, downloadSignedContract, deleteContract };

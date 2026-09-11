@@ -8,6 +8,7 @@ const {
   detectSignLocations, cropSignatureToContent, stampPsicologoSignature, getPageCount,
   ANCHOR_CV, ANCHOR_TRATAMIENTO, ANCHOR_PSICOLOGO,
 } = require('../services/reclutamientoPdfService');
+const { buildDailyTrend } = require('../utils/dailyTrend');
 const { sendReclutamientoEmail } = require('../services/reclutamientoEmailService');
 const { sendReclutamientoWhatsApp } = require('../services/reclutamientoWhatsappService');
 
@@ -137,6 +138,36 @@ async function listCandidatos(req, res, next) {
   }
 }
 
+async function getCandidatosDashboard(req, res, next) {
+  try {
+    const [stats] = await db.query(`
+      SELECT
+        COUNT(*) AS total,
+        SUM(status = 'pending') AS pending,
+        SUM(status = 'viewed') AS viewed,
+        SUM(status = 'signed') AS signed
+      FROM reclutamiento_candidatos
+    `);
+
+    const [recent] = await db.query(`
+      SELECT id, candidate_name, status, sent_at
+      FROM reclutamiento_candidatos
+      ORDER BY created_at DESC LIMIT 5
+    `);
+
+    const [trendRows] = await db.query(`
+      SELECT DATE(sent_at) AS day, COUNT(*) AS count
+      FROM reclutamiento_candidatos
+      WHERE sent_at >= CURDATE() - INTERVAL 13 DAY
+      GROUP BY DATE(sent_at)
+    `);
+
+    res.json({ stats: stats[0], recent, trend: buildDailyTrend(trendRows) });
+  } catch (err) {
+    next(err);
+  }
+}
+
 async function getCandidato(req, res, next) {
   try {
     const [rows] = await db.query('SELECT * FROM reclutamiento_candidatos WHERE id = ?', [req.params.id]);
@@ -228,6 +259,7 @@ function downloadDocumento(tipo) {
 module.exports = {
   sendCandidato,
   listCandidatos,
+  getCandidatosDashboard,
   getCandidato,
   firmarPsicologo,
   downloadCv: downloadDocumento('cv'),

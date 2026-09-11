@@ -7,7 +7,7 @@ const { v4: uuidv4 } = require('uuid');
 const auth = require('../middleware/auth');
 const requireRole = require('../middleware/requireRole');
 const {
-  submitPublicDataUpdate, listPublicDataUpdates, getPublicDataUpdatePhoto,
+  submitPublicDataUpdate, listPublicDataUpdates, getPublicDataUpdatesDashboard, getPublicDataUpdatePhoto,
 } = require('../controllers/publicDataUpdateController');
 
 // Módulo NPN de actualización de datos — mismo gate que Cartas/Oleadas
@@ -61,6 +61,7 @@ const submitLimiter = rateLimit({
 router.post('/submit', submitLimiter, handlePhotoUpload, submitPublicDataUpdate);
 
 // Panel interno — mismos roles que Cartas/Oleadas
+router.get('/dashboard', auth, requireCorreoAccess, getPublicDataUpdatesDashboard);
 router.get('/:id/photo/:type', auth, requireCorreoAccess, getPublicDataUpdatePhoto);
 router.get('/', auth, requireCorreoAccess, listPublicDataUpdates);
 
