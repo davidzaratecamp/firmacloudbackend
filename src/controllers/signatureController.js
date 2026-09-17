@@ -118,12 +118,22 @@ async function sendDocument(req, res, next) {
 
 async function listSignatures(req, res, next) {
   try {
-    const { status, search, page = 1, limit = 20 } = req.query;
+    const { status, search, page = 1, limit = 20, documentType } = req.query;
     const offset = (page - 1) * limit;
 
     // npn_name IS NULL excluye las cartas NPN del flujo de firma original
     let where = req.user.role === 'admin' ? 'sr.npn_name IS NULL' : 'sr.agent_id = ? AND sr.npn_name IS NULL';
     const params = req.user.role === 'admin' ? [] : [req.user.id];
+
+    // documentType: distingue Vital (document_name fijo, ver sendDocumentWithData) del resto
+    // (tratamiento de datos original + contrato-activación/Obama legado, ambos mezclados bajo
+    // "legacy" porque comparten la misma pantalla histórica del panel). Sin este parámetro,
+    // el comportamiento es idéntico al de antes (todo junto) — no rompe al frontend actual.
+    if (documentType === 'vital') {
+      where += " AND sr.document_name = 'vital-firma-tratamiento-datos.pdf'";
+    } else if (documentType === 'legacy') {
+      where += " AND sr.document_name != 'vital-firma-tratamiento-datos.pdf'";
+    }
 
     if (status) { where += ' AND sr.status = ?'; params.push(status); }
     if (search) { where += ' AND (sr.client_name LIKE ? OR sr.client_email LIKE ?)'; params.push(`%${search}%`, `%${search}%`); }
