@@ -6,6 +6,8 @@ signed/*
 !signed/.gitkeep
 certificates/*
 !certificates/.gitkeep
+vital-uploads/*
+!vital-uploads/.gitkeep
 *.log
 
 # archivos de prueba

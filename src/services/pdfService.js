@@ -80,7 +80,21 @@ function sanitizeForPdf(value) {
   return out.replace(/\s+/g, ' ').trim();
 }
 
-async function stampSignature(originalPdfPath, signatureDataUrl, signerInfo, signFieldOverride = null, signPageIndex = 0, extraSignLocations = []) {
+// Subraya un texto ya dibujado en (x, y): pdf-lib no tiene subrayado nativo, se dibuja
+// una línea propia justo debajo del renglón (usado en el párrafo de consentimiento vital,
+// donde el nombre del cliente/agente va en negrita y subrayado, igual que en la referencia).
+function drawUnderline(page, x, y, width, thickness = 0.7) {
+  if (width <= 0) return;
+  page.drawLine({
+    start: { x, y: y - 1.5 },
+    end:   { x: x + width, y: y - 1.5 },
+    thickness,
+    color: rgb(0, 0, 0),
+  });
+}
+
+async function stampSignature(originalPdfPath, signatureDataUrl, signerInfo, signFieldOverride = null, signPageIndex = 0, extraSignLocations = [], docKind = 'default') {
+  const isVital = docKind === 'vital';
   const SIGN_FIELD = resolveSignField(signFieldOverride);
 
   const pdfBytes = await fs.readFile(originalPdfPath);
@@ -100,6 +114,14 @@ async function stampSignature(originalPdfPath, signatureDataUrl, signerInfo, sig
   // usada solo para el valor de IP estampado en esa página al firmar.
   const page3RegularBytes = await fs.readFile(path.join(FONTS_DIR, 'MyriadPro-Regular.otf'));
   const page3Font = await pdfDoc.embedFont(page3RegularBytes, { features: { liga: false, rlig: false, clig: false } });
+
+  // DejaVu Sans: fuente para los valores del flujo vital (Date/IP/Location/Coordinates al firmar).
+  const vitalFont = isVital
+    ? await pdfDoc.embedFont(await fs.readFile(path.join(FONTS_DIR, 'DejaVuSans.ttf')))
+    : null;
+  const vitalFontBold = isVital
+    ? await pdfDoc.embedFont(await fs.readFile(path.join(FONTS_DIR, 'DejaVuSans-Bold.ttf')))
+    : null;
 
   const d = signerInfo.signedAt instanceof Date ? signerInfo.signedAt : new Date(signerInfo.signedAt);
   const pad = n => String(n).padStart(2, '0');
@@ -142,7 +164,9 @@ async function stampSignature(originalPdfPath, signatureDataUrl, signerInfo, sig
   // Encabezado y pie en todas las páginas;
   // en flujo contrato-activacion (signPageIndex > 0) se omite página 3 (index 2)
   // porque esa página ya tiene el campo "IP: Utilizando dirección IP:" pre-impreso.
-  for (let pi = 0; pi < pages.length; pi++) {
+  // Flujo vital: sin encabezado/pie en ninguna página — el template ya trae sus propios
+  // campos "Date:", "IP:", "Location:", "Coordinates:" pre-impresos (ver signTimeFields).
+  for (let pi = 0; pi < pages.length && !isVital; pi++) {
     if (pi === 2 && signPageIndex > 0) continue;
     const p = pages[pi];
     const pw = p.getWidth();
@@ -176,8 +200,8 @@ async function stampSignature(originalPdfPath, signatureDataUrl, signerInfo, sig
     });
   }
 
-  // IP del cliente en la etiqueta pre-impresa de página 3 (solo flujo contrato-activacion)
-  if (signPageIndex > 0 && pages[2]) {
+  // IP del cliente en la etiqueta pre-impresa de página 3 (solo flujo contrato-activacion legado)
+  if (signPageIndex > 0 && pages[2] && !isVital) {
     const ipLabel = 'IP: Utilizando dirección IP: ';
     const labelW  = fontBold.widthOfTextAtSize(ipLabel, 9);
     pages[2].drawText(signerInfo.ipAddress || 'N/A', {
@@ -187,6 +211,36 @@ async function stampSignature(originalPdfPath, signatureDataUrl, signerInfo, sig
       font: page3Font,
       color: rgb(0, 0, 0),
     });
+  }
+
+  // Flujo vital: llena IP/Location/Coordinates en las coordenadas pre-calibradas de
+  // vital_firma_tratamiento_datos.json (ver signTimeFields) — ver Location Section del
+  // template ("Location signature: · IP: · Location: · Coordinates:"). "Date:" y
+  // "Expiration Date:" NO se tocan aquí — se llenan al enviar, en fillVitalDocument
+  // (ver ese archivo para el porqué); volver a dibujarlas aquí las superpondría.
+  if (isVital) {
+    const vitalConfigPath = path.join(__dirname, '../config/templates/vital_firma_tratamiento_datos.json');
+    const vitalConfig = JSON.parse(await fs.readFile(vitalConfigPath, 'utf-8'));
+
+    const geo = signerInfo.geolocation || {};
+    const valuesBySource = {
+      ip: signerInfo.ipAddress || 'N/A',
+      location: geo.locationName || '',
+      coordinates: (geo.latitude != null && geo.longitude != null) ? `${geo.latitude}, ${geo.longitude}` : '',
+    };
+
+    for (const field of vitalConfig.signTimeFields || []) {
+      const value = valuesBySource[field.source];
+      if (!value) continue;
+      const p = pages[field.page];
+      if (!p) continue;
+      p.drawText(sanitizeForPdf(value), {
+        x: field.x, y: field.y,
+        size: field.fontSize || 9,
+        font: field.bold ? vitalFontBold : vitalFont,
+        color: rgb(0, 0, 0),
+      });
+    }
   }
 
   return await pdfDoc.save();
@@ -654,4 +708,130 @@ async function getContratoSignConfig() {
   };
 }
 
-module.exports = { stampSignature, generateCertificate, mergePDFs, fillContratoActivacion, getContratoSignConfig };
+// Llena la plantilla "Carta CMS Vital.pdf" (módulo Vital — Firma Tratamiento de Datos,
+// reemplazo de contrato-activacion) con los datos recibidos desde la intranet.
+// A diferencia de fillContratoActivacion, no maneja beneficiarios ni fuente Myriad Pro:
+// la plantilla es un formulario CMS simple (agente + contacto de hogar + datos de plan).
+// La fuente usada para los valores es DejaVu Sans (embebida desde src/assets/fonts/).
+// Devuelve el PDF modificado como Buffer.
+async function fillVitalDocument(documentData) {
+  const configPath = path.join(__dirname, '../config/templates/vital_firma_tratamiento_datos.json');
+  const config = JSON.parse(await fs.readFile(configPath, 'utf-8'));
+
+  const templatePath = path.join(TEMPLATES_DIR, config.templateFile);
+  const templateBytes = await fs.readFile(templatePath);
+  const pdfDoc = await PDFDocument.load(templateBytes);
+  pdfDoc.registerFontkit(fontkit);
+
+  const [fontBytes, fontBoldBytes] = await Promise.all([
+    fs.readFile(path.join(FONTS_DIR, 'DejaVuSans.ttf')),
+    fs.readFile(path.join(FONTS_DIR, 'DejaVuSans-Bold.ttf')),
+  ]);
+  const font     = await pdfDoc.embedFont(fontBytes);
+  const fontBold = await pdfDoc.embedFont(fontBoldBytes);
+  const pages = pdfDoc.getPages();
+
+  for (const field of config.textFields) {
+    const rawValue = getNestedValue(documentData, field.dataPath);
+    const value = rawValue != null ? String(rawValue).trim() : '';
+    if (!value) continue;
+
+    const pageObj = pages[field.page];
+    if (!pageObj) continue;
+
+    const cleanValue = (field.prefix || '') + sanitizeForPdf(value);
+    const size = field.fontSize || 10;
+    const fieldFont = field.bold ? fontBold : font;
+
+    pageObj.drawText(cleanValue, {
+      x: field.x, y: field.y,
+      size,
+      font: fieldFont,
+      color: rgb(0, 0, 0),
+    });
+
+    if (field.underline) {
+      drawUnderline(pageObj, field.x, field.y, fieldFont.widthOfTextAtSize(cleanValue, size));
+    }
+  }
+
+  // "...consent at any time by ___" — tercer blanco del párrafo de consentimiento,
+  // se envuelve a la línea siguiente cuando el nombre no cabe en lo que resta del renglón.
+  const cbf = config.consentByField;
+  if (cbf) {
+    const rawValue = getNestedValue(documentData, cbf.dataPath);
+    const value = rawValue != null ? String(rawValue).trim() : '';
+    const pageObj = pages[cbf.page];
+    if (value && pageObj) {
+      const f = cbf.bold ? fontBold : font;
+      const size = cbf.fontSize || 10;
+      const firstLineWidth = cbf.rightMarginX - cbf.firstLineX;
+      const restLineWidth  = cbf.rightMarginX - cbf.wrapX;
+      const lines = wrapValueAfterLabel(sanitizeForPdf(value), f, size, firstLineWidth, restLineWidth);
+      lines.forEach((line, i) => {
+        const lineX = i === 0 ? cbf.firstLineX : cbf.wrapX;
+        const lineY = cbf.firstLineY - i * cbf.lineGap;
+        pageObj.drawText(line, { x: lineX, y: lineY, size, font: f, color: rgb(0, 0, 0) });
+        if (cbf.underline) {
+          drawUnderline(pageObj, lineX, lineY, f.widthOfTextAtSize(line, size));
+        }
+      });
+    }
+  }
+
+  // "Date:" (página 3) y "Expiration Date:" (las 3 páginas) se llenan aquí con la fecha de
+  // ENVÍO — decisión 2026-09-17: el usuario las quiere visibles desde que se envía el
+  // documento, no recién al firmar. Expiration = fecha de envío + 1 año. No se vuelven a
+  // dibujar en stampSignature (dibujar dos fechas distintas en el mismo lugar se superpondría).
+  const now = new Date();
+  const pad = n => String(n).padStart(2, '0');
+  const sendDateStr       = `${pad(now.getUTCMonth() + 1)}/${pad(now.getUTCDate())}/${now.getUTCFullYear()}`;
+  const expirationDateStr = `${pad(now.getUTCMonth() + 1)}/${pad(now.getUTCDate())}/${now.getUTCFullYear() + 1}`;
+
+  if (config.sendDateField) {
+    const pageObj = pages[config.sendDateField.page];
+    if (pageObj) {
+      pageObj.drawText(sendDateStr, {
+        x: config.sendDateField.x, y: config.sendDateField.y,
+        size: config.sendDateField.fontSize || 10,
+        font: fontBold,
+        color: rgb(0, 0, 0),
+      });
+    }
+  }
+
+  // Color de "Expiration Date:" — mismo tono que la etiqueta pre-impresa (gris, no negro
+  // puro), medido renderizando la plantilla a pixeles: rgb(102,102,102) ≈ rgb(0.4,0.4,0.4).
+  const [er, eg, eb] = config.expirationDateColor || [0.4, 0.4, 0.4];
+  const expirationDateColor = rgb(er, eg, eb);
+
+  for (const field of config.expirationDateFields || []) {
+    const pageObj = pages[field.page];
+    if (!pageObj) continue;
+    pageObj.drawText(expirationDateStr, {
+      x: field.x, y: field.y,
+      size: field.fontSize || 10,
+      font: fontBold,
+      color: expirationDateColor,
+    });
+  }
+
+  return Buffer.from(await pdfDoc.save());
+}
+
+// Devuelve la configuración del campo de firma para el flujo vital (signPage + signField).
+async function getVitalSignConfig() {
+  const configPath = path.join(__dirname, '../config/templates/vital_firma_tratamiento_datos.json');
+  const config = JSON.parse(await fs.readFile(configPath, 'utf-8'));
+  return {
+    signPageIndex: config.signPage,
+    signField: config.signField,
+    extraSignLocations: config.extraSignLocations || [],
+  };
+}
+
+module.exports = {
+  stampSignature, generateCertificate, mergePDFs,
+  fillContratoActivacion, getContratoSignConfig,
+  fillVitalDocument, getVitalSignConfig,
+};

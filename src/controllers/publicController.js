@@ -2,9 +2,10 @@ const path = require('path');
 const fs = require('fs').promises;
 const { v4: uuidv4 } = require('uuid');
 const db = require('../config/database');
-const { stampSignature, getContratoSignConfig } = require('../services/pdfService');
+const { stampSignature, getContratoSignConfig, getVitalSignConfig } = require('../services/pdfService');
 const { hashBuffer } = require('../utils/hash');
 const { triggerWebhook } = require('../services/webhookService');
+const { resolveIpLocation } = require('../utils/serverLocation');
 
 function buildWebhookBase(sig) {
   return {
@@ -14,6 +15,18 @@ function buildWebhookBase(sig) {
     clientPhone: sig.client_phone,
     documentName: sig.document_name,
   };
+}
+
+// Detecta el módulo dueño del documento a partir del marcador guardado en document_data al
+// enviarlo (ver signatureController.sendDocumentWithData). Usado para elegir con qué API key
+// se firma el webhook (ver getWebhookSigningKey) — cada intranet solo debe poder verificar
+// webhooks con SU PROPIA credencial, nunca con la de otro sistema.
+function getDocKind(sig) {
+  try { return sig.document_data ? JSON.parse(sig.document_data)._docKind : null; } catch { return null; }
+}
+
+function getWebhookSigningKey(sig) {
+  return getDocKind(sig) === 'vital' ? process.env.VITAL_API_KEY : process.env.API_KEY;
 }
 
 const SIGNED_DIR = path.resolve(process.env.SIGNED_DIR || path.join(__dirname, '../../signed'));
@@ -55,7 +68,7 @@ async function getSigningPage(req, res, next) {
     const sig = rows[0];
     if (!sig.npn_name && new Date() > new Date(sig.token_expires_at)) {
       await db.query("UPDATE signature_requests SET status = 'expired' WHERE id = ?", [sig.id]);
-      if (sig.webhook_url) triggerWebhook(sig.webhook_url, { ...buildWebhookBase(sig), event: 'document.expired', expiredAt: new Date().toISOString() });
+      if (sig.webhook_url) triggerWebhook(sig.webhook_url, { ...buildWebhookBase(sig), event: 'document.expired', expiredAt: new Date().toISOString() }, getWebhookSigningKey(sig));
       return res.status(410).json({ error: 'Este enlace ha expirado' });
     }
     if (sig.status === 'signed') return res.status(409).json({ error: 'Este documento ya fue firmado' });
@@ -78,7 +91,7 @@ async function recordView(req, res, next) {
     if (sig.status === 'pending') {
       const viewedAt = new Date();
       await db.query("UPDATE signature_requests SET status = 'viewed', viewed_at = ? WHERE id = ?", [viewedAt, sig.id]);
-      if (sig.webhook_url) triggerWebhook(sig.webhook_url, { ...buildWebhookBase(sig), event: 'document.viewed', viewedAt: viewedAt.toISOString() });
+      if (sig.webhook_url) triggerWebhook(sig.webhook_url, { ...buildWebhookBase(sig), event: 'document.viewed', viewedAt: viewedAt.toISOString() }, getWebhookSigningKey(sig));
     }
 
     const ip = getClientIP(req);
@@ -150,7 +163,7 @@ async function submitSignature(req, res, next) {
     if (sig.status === 'failed') return res.status(410).json({ error: 'Enlace no disponible' });
     if (!sig.npn_name && new Date() > new Date(sig.token_expires_at)) {
       await db.query("UPDATE signature_requests SET status = 'expired' WHERE id = ?", [sig.id]);
-      if (sig.webhook_url) triggerWebhook(sig.webhook_url, { ...buildWebhookBase(sig), event: 'document.expired', expiredAt: new Date().toISOString() });
+      if (sig.webhook_url) triggerWebhook(sig.webhook_url, { ...buildWebhookBase(sig), event: 'document.expired', expiredAt: new Date().toISOString() }, getWebhookSigningKey(sig));
       return res.status(410).json({ error: 'Enlace expirado' });
     }
 
@@ -165,7 +178,25 @@ async function submitSignature(req, res, next) {
       clientEmail: sig.client_email || '',
       signedAt,
       ipAddress: ip,
+      geolocation: geolocation || null,
     };
+
+    const isVital = getDocKind(sig) === 'vital';
+
+    // "Location:"/"Coordinates:" del flujo vital se resuelven por IP del lado del servidor
+    // (mismo criterio que la referencia real) en vez de depender del geolocation.locationName
+    // que manda el navegador del cliente (requiere permiso, muchos lo niegan). Si la IP no se
+    // puede geolocalizar, se conserva lo que haya mandado el navegador como respaldo.
+    if (isVital) {
+      const ipGeo = await resolveIpLocation(ip);
+      if (ipGeo && (ipGeo.location || (ipGeo.latitude != null && ipGeo.longitude != null))) {
+        signerInfo.geolocation = {
+          latitude: ipGeo.latitude,
+          longitude: ipGeo.longitude,
+          locationName: ipGeo.location,
+        };
+      }
+    }
 
     // Determinar página y coordenadas del campo de firma según el tipo de documento
     let signFieldOverride = null;
@@ -203,8 +234,15 @@ async function submitSignature(req, res, next) {
           signFieldOverride = { x, y, width: isNaN(w) ? 200 : w, height: isNaN(h) ? 50 : h };
         }
       }
+    } else if (signPageIndex > 0 && isVital) {
+      // Flujo vital (Vital — Firma Tratamiento de Datos): coordenadas desde config JSON
+      const vitalConfig = await getVitalSignConfig();
+      signFieldOverride = vitalConfig.signField;
+      extraSignLocations = vitalConfig.extraSignLocations;
     } else if (signPageIndex > 0) {
-      // Flujo contrato de activación (send-with-data): coordenadas desde config JSON
+      // Flujo legado contrato de activación (send-with-data, documentos enviados antes del
+      // cambio a vital): coordenadas desde config JSON — se conserva solo para que enlaces
+      // ya enviados y aún no firmados se puedan completar correctamente.
       try {
         const contratoConfig = await getContratoSignConfig();
         signFieldOverride = contratoConfig.signField;
@@ -221,7 +259,7 @@ async function submitSignature(req, res, next) {
       }
     }
 
-    const signedPdfBuffer = await stampSignature(sig.document_original_path, signatureDataUrl, signerInfo, signFieldOverride, signPageIndex, extraSignLocations);
+    const signedPdfBuffer = await stampSignature(sig.document_original_path, signatureDataUrl, signerInfo, signFieldOverride, signPageIndex, extraSignLocations, isVital ? 'vital' : 'default');
     const signedHash = hashBuffer(Buffer.from(signedPdfBuffer));
 
     const signedFileName = `FIRMADO-${sig.id}-${sig.document_name}`;
@@ -276,7 +314,7 @@ async function submitSignature(req, res, next) {
         signerDevice: device,
         signedAt: signedAt.toISOString(),
         downloadUrl: `${process.env.APP_URL?.replace(':5173', ':3000') || ''}/api/signatures/${sig.id}/download`,
-      });
+      }, getWebhookSigningKey(sig));
     }
 
     res.json({ ok: true, message: 'Documento firmado exitosamente', signedAt: signedAt.toISOString() });
