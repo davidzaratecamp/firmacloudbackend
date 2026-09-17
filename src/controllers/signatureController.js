@@ -4,15 +4,18 @@ const fs = require('fs').promises;
 const db = require('../config/database');
 const { generateSecureToken, getTokenExpiry } = require('../utils/token');
 const { hashFile, hashBuffer } = require('../utils/hash');
-const { sendSignatureRequest } = require('../services/emailService');
-const { sendSignatureWhatsApp } = require('../services/whatsappService');
-const { generateCertificate, fillContratoActivacion, getContratoSignConfig } = require('../services/pdfService');
+const { sendSignatureRequest, sendVitalSignatureRequest } = require('../services/emailService');
+const { sendSignatureWhatsApp, sendVitalWhatsApp } = require('../services/whatsappService');
+const { generateCertificate, fillVitalDocument, getVitalSignConfig } = require('../services/pdfService');
 const { triggerWebhook } = require('../services/webhookService');
 const { buildDailyTrend } = require('../utils/dailyTrend');
 const { getServerLocation } = require('../utils/serverLocation');
 
-const UPLOADS_DIR = path.resolve(process.env.UPLOADS_DIR || path.join(__dirname, '../../uploads'));
-const SIGNED_DIR  = path.resolve(process.env.SIGNED_DIR  || path.join(__dirname, '../../signed'));
+const UPLOADS_DIR      = path.resolve(process.env.UPLOADS_DIR      || path.join(__dirname, '../../uploads'));
+const SIGNED_DIR       = path.resolve(process.env.SIGNED_DIR       || path.join(__dirname, '../../signed'));
+// Módulo Vital — Firma Tratamiento de Datos: NO comparte carpeta con el resto de Firmas/Cartas
+// (que usan UPLOADS_DIR); guarda sus documentos llenados en su propia carpeta.
+const VITAL_UPLOADS_DIR = path.resolve(process.env.VITAL_UPLOADS_DIR || path.join(__dirname, '../../vital-uploads'));
 
 // Validación laxa de formato (evita que espacios en blanco o valores mal formados
 // pasen la validación de "requerido" y lleguen crudos a nodemailer/WhatsApp).
@@ -221,6 +224,13 @@ async function downloadCertificate(req, res, next) {
 
     const sig = rows[0];
 
+    // Módulo vital (Vital — Firma Tratamiento de Datos): sin sumario/certificado post-firma.
+    let docKind = null;
+    try { docKind = sig.document_data ? JSON.parse(sig.document_data)._docKind : null; } catch { /* documento sin JSON válido, no es vital */ }
+    if (docKind === 'vital') {
+      return res.status(400).json({ error: 'Este documento no genera sumario/certificado' });
+    }
+
     let certBuffer;
     if (sig.certificate_path) {
       certBuffer = await fs.readFile(path.resolve(sig.certificate_path));
@@ -400,28 +410,27 @@ async function sendDocumentWithData(req, res, next) {
     }
     if ((sendChannel === 'whatsapp' || sendChannel === 'both') && !clientPhone)
       return res.status(400).json({ error: 'Teléfono requerido para envío por WhatsApp' });
-    if (!documentData || (!documentData.page2 && !documentData.page3))
-      return res.status(400).json({ error: 'documentData con page2 y/o page3 es requerido' });
+    if (!documentData || !documentData.vital)
+      return res.status(400).json({ error: 'documentData con vital es requerido' });
     if (req.user.isApiKey) {
       if (!agentName)   return res.status(400).json({ error: 'Nombre del agente requerido' });
       if (!agentCedula) return res.status(400).json({ error: 'Cédula del agente requerida' });
     }
 
-    // Completar fecha en page2 si no viene
-    if (documentData.page2 && !documentData.page2.date) {
-      const now = new Date();
-      const pad = n => String(n).padStart(2, '0');
-      documentData.page2.date = `${pad(now.getMonth() + 1)}-${pad(now.getDate())}-${now.getFullYear()}`;
-    }
+    // Si la intranet no duplica clientName/agentName dentro de documentData.vital, se
+    // completan con los mismos valores ya enviados en la raíz del body (mismo dato, dos
+    // usos: routing de envío arriba, texto del párrafo de consentimiento en el PDF aquí).
+    if (!documentData.vital.clientName) documentData.vital.clientName = clientName;
+    if (!documentData.vital.agentName)  documentData.vital.agentName  = agentName;
 
-    // Llenar plantilla con los datos
-    const filledPdfBuffer = await fillContratoActivacion(documentData);
+    // Llenar plantilla con los datos (módulo Vital — Firma Tratamiento de Datos)
+    const filledPdfBuffer = await fillVitalDocument(documentData);
 
-    const contratoConfig = await getContratoSignConfig();
+    const vitalConfig = await getVitalSignConfig();
 
-    const docName = 'contrato-activacion.pdf';
+    const docName = 'vital-firma-tratamiento-datos.pdf';
     const id = uuidv4();
-    const uploadPath = path.join(UPLOADS_DIR, `${id}-${docName}`);
+    const uploadPath = path.join(VITAL_UPLOADS_DIR, `${id}-${docName}`);
     await fs.writeFile(uploadPath, filledPdfBuffer);
 
     const docHash = hashBuffer(filledPdfBuffer);
@@ -444,8 +453,8 @@ async function sendDocumentWithData(req, res, next) {
         agentName || null, agentCedula || null, loggedAgentName || null, loggedAgentId || null,
         serverLoc?.ip || null, serverLoc?.location || null,
         webhookUrl || null,
-        JSON.stringify({ ...documentData, _ventaId: ventaId || null }),
-        contratoConfig.signPageIndex,
+        JSON.stringify({ ...documentData, _docKind: 'vital', _ventaId: ventaId || null }),
+        vitalConfig.signPageIndex,
       ]
     );
 
@@ -458,7 +467,9 @@ async function sendDocumentWithData(req, res, next) {
 
     if (sendChannel === 'email' || sendChannel === 'both') {
       try {
-        await sendSignatureRequest(sendArgs);
+        // sendDocumentWithData es exclusiva del módulo Vital — mismo texto/branding que la
+        // plantilla de WhatsApp aprobada en Meta, nunca sendSignatureRequest (Obama/legado).
+        await sendVitalSignatureRequest(sendArgs);
       } catch (emailErr) {
         console.error('[email] Fallo al enviar solicitud de firma (send-with-data):', emailErr.message);
         await fs.unlink(uploadPath).catch(() => {});
@@ -473,7 +484,9 @@ async function sendDocumentWithData(req, res, next) {
 
     if (sendChannel === 'whatsapp' || sendChannel === 'both') {
       try {
-        await sendSignatureWhatsApp(sendArgs);
+        // sendDocumentWithData es exclusiva del módulo Vital (ver fillVitalDocument arriba) —
+        // usa siempre la plantilla/credenciales propias de Vital, nunca sendSignatureWhatsApp.
+        await sendVitalWhatsApp(sendArgs);
       } catch (waErr) {
         if (sendChannel === 'whatsapp') {
           await fs.unlink(uploadPath).catch(() => {});

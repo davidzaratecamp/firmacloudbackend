@@ -1,0 +1,58 @@
+{
+  "_note": "Template: Carta CMS Vital.pdf (3 pags, 595x842 = US Letter). Pag2 idx1 = CMS Model Consent Form (parrafo de consentimiento + agente + contacto de hogar + datos de plan). Pag3 idx2 = PD/SD + firma (Date/Signature/IP/Location/Coordinates). Coordenadas recalibradas 2026-09-16 contra 'Carta CMS Vital (1).pdf' (documento real ya firmado, usado como referencia) — NO son 'etiqueta + ancho + gap' como en el flujo viejo: esta plantilla usa columnas de valor FIJAS (x=313 para el bloque de agente, x=168 para el resto), confirmado extrayendo item.transform de esa referencia con pdfjs. bold=true en un campo = DejaVuSans-Bold (identidad/contacto/fecha); bold=false = DejaVuSans regular (datos financieros/plan). sendDateField/expirationDateFields: 2026-09-17, a pedido del usuario, se llenan al ENVIAR (fillVitalDocument) con la fecha de envío, no al firmar — antes estaban en signTimeFields/se calculaban al firmar y salían vacías hasta que el cliente firmaba, lo cual el usuario reportó como 'no aparece'. Expiration = fecha de envío + 1 año. Ya no se re-dibujan en stampSignature (evita superponer dos fechas distintas en el mismo lugar).",
+  "templateFile": "Carta CMS Vital.pdf",
+  "signPage": 2,
+  "signField": {
+    "x": 110,
+    "y": 628,
+    "width": 170,
+    "height": 35,
+    "_note": "Firma cliente en pagina 3 (index 2) — unica firma del documento, label 'Signature:' y=642"
+  },
+  "extraSignLocations": [],
+  "sendDateField": { "page": 2, "x": 168, "y": 668, "fontSize": 10 },
+  "expirationDateColor": [0.4, 0.4, 0.4],
+  "expirationDateFields": [
+    { "page": 0, "x": 524, "y": 741, "fontSize": 10 },
+    { "page": 1, "x": 524, "y": 741, "fontSize": 10 },
+    { "page": 2, "x": 524, "y": 741, "fontSize": 10 }
+  ],
+  "textFields": [
+    { "id": "consentClientName",      "dataPath": "vital.clientName",              "page": 1, "x": 58.3, "y": 679, "fontSize": 10, "bold": true, "underline": true, "_note": "'I, ___,' — primer blanco del parrafo de consentimiento" },
+    { "id": "consentAgentName",       "dataPath": "vital.agentName",               "page": 1, "x": 308.8,"y": 679, "fontSize": 10, "bold": true, "underline": true, "_note": "'give my permission to ___' — mismo valor que Name of Primary Writing Agent" },
+
+    { "id": "agentName",              "dataPath": "vital.agentName",               "page": 1, "x": 313, "y": 355, "fontSize": 10, "bold": true },
+    { "id": "agentNPN",                "dataPath": "vital.agentNPN",                "page": 1, "x": 313, "y": 338, "fontSize": 10, "bold": true },
+    { "id": "agentPhone",              "dataPath": "vital.agentPhone",              "page": 1, "x": 313, "y": 321, "fontSize": 10, "bold": true },
+    { "id": "agentEmail",              "dataPath": "vital.agentEmail",              "page": 1, "x": 313, "y": 304, "fontSize": 10, "bold": true },
+    { "id": "householdContactName",    "dataPath": "vital.householdContactName",    "page": 1, "x": 168, "y": 250, "fontSize": 10, "bold": true, "_note": "centrado verticalmente en el bloque de 4 lineas de la etiqueta, no alineado a 'Representative:'" },
+    { "id": "householdContactPhone",   "dataPath": "vital.householdContactPhone",   "page": 1, "x": 168, "y": 213, "fontSize": 10, "bold": true },
+    { "id": "householdContactEmail",   "dataPath": "vital.householdContactEmail",   "page": 1, "x": 168, "y": 196, "fontSize": 10, "bold": true },
+    { "id": "taxes",                   "dataPath": "vital.taxes",                   "page": 1, "x": 168, "y": 179, "fontSize": 10, "bold": false, "prefix": "$", "_note": "vital.taxes es numerico (ej. 30.09), el codigo antepone el signo $" },
+    { "id": "company",                 "dataPath": "vital.company",                 "page": 1, "x": 168, "y": 162, "fontSize": 10, "bold": false },
+    { "id": "plan",                    "dataPath": "vital.plan",                    "page": 1, "x": 168, "y": 145, "fontSize": 10, "bold": false },
+    { "id": "monthlyPay",              "dataPath": "vital.monthlyPay",              "page": 1, "x": 168, "y": 128, "fontSize": 10, "bold": false, "prefix": "$", "_note": "vital.monthlyPay es numerico, el codigo antepone el signo $" },
+    { "id": "deductible",              "dataPath": "vital.deductible",              "page": 1, "x": 168, "y": 111, "fontSize": 10, "bold": false, "prefix": "$", "_note": "vital.deductible es numerico, el codigo antepone el signo $" },
+    { "id": "gd",                      "dataPath": "vital.gd",                      "page": 1, "x": 168, "y": 91,  "fontSize": 10, "bold": false, "prefix": "$", "_note": "vital.gd es numerico, el codigo antepone el signo $" },
+    { "id": "pd",                      "dataPath": "vital.pd",                      "page": 2, "x": 168, "y": 702, "fontSize": 10, "bold": false, "prefix": "$", "_note": "vital.pd es numerico, el codigo antepone el signo $" },
+    { "id": "sd",                      "dataPath": "vital.sd",                      "page": 2, "x": 168, "y": 685, "fontSize": 10, "bold": false, "_note": "vital.sd es un porcentaje (ej. '50%'), NO lleva $ — la intranet lo envia con el % incluido" }
+  ],
+  "consentByField": {
+    "_note": "'...consent at any time by ___' — tercer blanco del parrafo, se ajusta en varios renglones (mismo valor de vital.clientName). En la referencia envuelve a 2 lineas porque no cabe completo en lo que resta del renglon.",
+    "dataPath": "vital.clientName",
+    "page": 1,
+    "firstLineX": 470,
+    "firstLineY": 395,
+    "rightMarginX": 546,
+    "wrapX": 48,
+    "lineGap": 13,
+    "fontSize": 10,
+    "bold": true,
+    "underline": true
+  },
+  "signTimeFields": [
+    { "id": "ip",          "page": 2, "x": 223, "y": 606, "fontSize": 9,  "source": "ip",   "bold": false },
+    { "id": "location",    "page": 2, "x": 257, "y": 593, "fontSize": 9,  "source": "location", "bold": false },
+    { "id": "coordinates", "page": 2, "x": 274, "y": 580, "fontSize": 9,  "source": "coordinates", "bold": false }
+  ]
+}

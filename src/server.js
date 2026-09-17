@@ -14,12 +14,13 @@ process.env.UPLOADS_DIR       = resolvedir(process.env.UPLOADS_DIR,       'uploa
 process.env.SIGNED_DIR        = resolvedir(process.env.SIGNED_DIR,        'signed');
 process.env.CERTIFICATES_DIR  = resolvedir(process.env.CERTIFICATES_DIR,  'certificates');
 process.env.FORM_UPLOADS_DIR  = resolvedir(process.env.FORM_UPLOADS_DIR,  'form-uploads');
+process.env.VITAL_UPLOADS_DIR = resolvedir(process.env.VITAL_UPLOADS_DIR, 'vital-uploads');
 // PLANTILLAS_DIR: source directory — resolved but NOT auto-created
 if (process.env.PLANTILLAS_DIR && !path.isAbsolute(process.env.PLANTILLAS_DIR)) {
   process.env.PLANTILLAS_DIR = path.join(ROOT, process.env.PLANTILLAS_DIR);
 }
 
-[process.env.UPLOADS_DIR, process.env.SIGNED_DIR, process.env.CERTIFICATES_DIR, process.env.FORM_UPLOADS_DIR].forEach(dir => {
+[process.env.UPLOADS_DIR, process.env.SIGNED_DIR, process.env.CERTIFICATES_DIR, process.env.FORM_UPLOADS_DIR, process.env.VITAL_UPLOADS_DIR].forEach(dir => {
   if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
 });
 

@@ -170,4 +170,51 @@ async function sendFormWhatsApp({ clientName, clientPhone, token, npnName }) {
   return result;
 }
 
-module.exports = { sendSignatureWhatsApp, sendFormWhatsApp, normalizePhone };
+// Módulo Vital — Firma Tratamiento de Datos: credenciales y plantilla propias
+// (VITAL_WHATSAPP_*), completamente separadas de WHATSAPP_* (Obama/legado). A diferencia de
+// sendSignatureWhatsApp, la plantilla de Vital ("vital_health_insurance") no lleva el link en
+// el body sino en un botón "Visitar sitio web dinámico" (sub_type 'url') — Meta concatena el
+// `token` como sufijo a la URL base ya configurada en la plantilla, mismo mecanismo que ya usa
+// sendFormWhatsApp para Cartas. Solo 1 param de body (nombre del cliente); sin fallback a otra
+// plantilla porque solo existe esta.
+async function sendVitalWhatsApp({ clientName, clientPhone, token }) {
+  const phoneNumberId = process.env.VITAL_WHATSAPP_PHONE_NUMBER_ID;
+  const accessToken   = process.env.VITAL_WHATSAPP_ACCESS_TOKEN;
+  const templateName  = process.env.VITAL_WHATSAPP_TEMPLATE_NAME || 'vital_health_insurance';
+  const lang          = process.env.VITAL_WHATSAPP_TEMPLATE_LANG || 'es';
+
+  if (!phoneNumberId || !accessToken) {
+    throw new Error('VITAL_WHATSAPP_PHONE_NUMBER_ID / VITAL_WHATSAPP_ACCESS_TOKEN no configurados');
+  }
+
+  const phone = normalizePhone(clientPhone);
+
+  const res = await fetch(
+    `https://graph.facebook.com/v25.0/${phoneNumberId}/messages`,
+    {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${accessToken}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        messaging_product: 'whatsapp',
+        to: phone,
+        type: 'template',
+        template: {
+          name: templateName,
+          language: { code: lang },
+          components: [
+            { type: 'body', parameters: [{ type: 'text', text: clientName }] },
+            { type: 'button', sub_type: 'url', index: '0', parameters: [{ type: 'text', text: token }] },
+          ],
+        },
+      }),
+    }
+  );
+  const data = await res.json();
+  if (data.error) throw new Error(`WhatsApp API error: ${data.error.message}`);
+  return data;
+}
+
+module.exports = { sendSignatureWhatsApp, sendFormWhatsApp, sendVitalWhatsApp, normalizePhone };
