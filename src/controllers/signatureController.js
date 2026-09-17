@@ -21,6 +21,16 @@ const VITAL_UPLOADS_DIR = path.resolve(process.env.VITAL_UPLOADS_DIR || path.joi
 // pasen la validación de "requerido" y lleguen crudos a nodemailer/WhatsApp).
 const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
+// Quita tildes/diacríticos y cualquier carácter no seguro para un nombre de archivo o para
+// el header Content-Disposition (evita inyección de comillas/CRLF vía nombre del cliente).
+function sanitizeFilenamePart(str) {
+  return String(str || '')
+    .normalize('NFD').replace(/[̀-ͯ]/g, '')
+    .replace(/[^a-zA-Z0-9 _-]/g, '')
+    .trim()
+    .replace(/\s+/g, '-');
+}
+
 async function sendDocument(req, res, next) {
   try {
     let { clientName, clientEmail, clientPhone, sendChannel = 'email', webhookUrl, agentName, agentCedula, loggedAgentName, loggedAgentId } = req.body;
@@ -213,8 +223,17 @@ async function downloadSignedDocument(req, res, next) {
 
     const signedBuffer = await fs.readFile(path.resolve(sig.signed_document_path));
 
+    // Módulo vital: todos los documentos comparten el mismo document_name fijo
+    // ("vital-firma-tratamiento-datos.pdf"), así que descargar varios daba siempre el mismo
+    // nombre de archivo — se usa nombre del cliente + UUID de la firma para distinguirlos.
+    let docKind = null;
+    try { docKind = sig.document_data ? JSON.parse(sig.document_data)._docKind : null; } catch { /* no es JSON válido, no es vital */ }
+    const downloadFilename = docKind === 'vital'
+      ? `FIRMADO-${sanitizeFilenamePart(sig.client_name)}-${sig.id}.pdf`
+      : `FIRMADO-${sig.document_name}`;
+
     res.setHeader('Content-Type', 'application/pdf');
-    res.setHeader('Content-Disposition', `attachment; filename="FIRMADO-${sig.document_name}"`);
+    res.setHeader('Content-Disposition', `attachment; filename="${downloadFilename}"`);
     res.send(Buffer.from(signedBuffer));
   } catch (err) {
     next(err);
