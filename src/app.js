@@ -1,9 +1,10 @@
 const express = require('express');
 const helmet = require('helmet');
 const cors = require('cors');
-const rateLimit = require('express-rate-limit');
 const path = require('path');
 require('dotenv').config();
+
+const apiRateLimit = require('./middleware/apiRateLimit');
 
 const authRoutes = require('./routes/auth');
 const signaturesRoutes = require('./routes/signatures');
@@ -49,8 +50,10 @@ app.use(cors({
 app.use(express.json({ limit: '2mb' }));
 app.use(express.urlencoded({ extended: true }));
 
-// Global rate limit
-app.use(rateLimit({ windowMs: 15 * 60 * 1000, max: 200, standardHeaders: true, legacyHeaders: false }));
+// Rate limit: cupo separado por identidad (API key / JWT) en vez de por IP para tráfico
+// autenticado — ver src/middleware/apiRateLimit.js (evita que una intranet completa detrás
+// de un NAT comparta un solo cupo de 200 req/15min).
+app.use(apiRateLimit);
 
 app.use('/api/auth', authRoutes);
 app.use('/api/signatures', signaturesRoutes);
