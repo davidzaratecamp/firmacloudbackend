@@ -6,6 +6,7 @@ const { generateSecureToken, getTokenExpiry } = require('../utils/token');
 const { hashFile, hashBuffer } = require('../utils/hash');
 const { sendSignatureRequest, sendVitalSignatureRequest } = require('../services/emailService');
 const { sendSignatureWhatsApp, sendVitalWhatsApp } = require('../services/whatsappService');
+const { sendSignatureSms } = require('../services/smsService');
 const { generateCertificate, fillVitalDocument, getVitalSignConfig } = require('../services/pdfService');
 const { triggerWebhook } = require('../services/webhookService');
 const { buildDailyTrend } = require('../utils/dailyTrend');
@@ -44,6 +45,8 @@ async function sendDocument(req, res, next) {
     }
     if ((sendChannel === 'whatsapp' || sendChannel === 'both') && !clientPhone)
       return res.status(400).json({ error: 'Teléfono requerido para envío por WhatsApp' });
+    if (sendChannel === 'sms' && !clientPhone)
+      return res.status(400).json({ error: 'Teléfono requerido para envío por SMS' });
     if (req.user.isApiKey) {
       if (!agentName) return res.status(400).json({ error: 'Nombre del agente requerido' });
       if (!agentCedula) return res.status(400).json({ error: 'Cédula del agente requerida' });
@@ -119,7 +122,22 @@ async function sendDocument(req, res, next) {
       }
     }
 
-    const channelLabel = { email: 'correo electrónico', whatsapp: 'WhatsApp', both: 'correo y WhatsApp' };
+    if (sendChannel === 'sms') {
+      try {
+        await sendSignatureSms(sendArgs);
+      } catch (smsErr) {
+        console.error('[sms] Fallo al enviar solicitud de firma:', smsErr.message);
+        await fs.unlink(uploadPath).catch(() => {});
+        await db.query('DELETE FROM activity_logs WHERE signature_request_id = ?', [id]);
+        await db.query('DELETE FROM signature_requests WHERE id = ?', [id]);
+        return res.status(503).json({
+          errorCode: 'SMS_UNAVAILABLE',
+          error: 'SMS no está disponible en este momento. Por favor reenvía el documento por otro canal.',
+        });
+      }
+    }
+
+    const channelLabel = { email: 'correo electrónico', whatsapp: 'WhatsApp', sms: 'SMS', both: 'correo y WhatsApp' };
     res.status(201).json({ id, status: 'pending', message: `Documento enviado por ${channelLabel[sendChannel]}` });
   } catch (err) {
     next(err);
@@ -439,6 +457,8 @@ async function sendDocumentWithData(req, res, next) {
     }
     if ((sendChannel === 'whatsapp' || sendChannel === 'both') && !clientPhone)
       return res.status(400).json({ error: 'Teléfono requerido para envío por WhatsApp' });
+    if (sendChannel === 'sms' && !clientPhone)
+      return res.status(400).json({ error: 'Teléfono requerido para envío por SMS' });
     if (!documentData || !documentData.vital)
       return res.status(400).json({ error: 'documentData con vital es requerido' });
     if (req.user.isApiKey) {
@@ -530,7 +550,22 @@ async function sendDocumentWithData(req, res, next) {
       }
     }
 
-    const channelLabel = { email: 'correo electrónico', whatsapp: 'WhatsApp', both: 'correo y WhatsApp' };
+    if (sendChannel === 'sms') {
+      try {
+        await sendSignatureSms(sendArgs);
+      } catch (smsErr) {
+        console.error('[sms] Fallo al enviar solicitud de firma (send-with-data):', smsErr.message);
+        await fs.unlink(uploadPath).catch(() => {});
+        await db.query('DELETE FROM activity_logs WHERE signature_request_id = ?', [id]);
+        await db.query('DELETE FROM signature_requests WHERE id = ?', [id]);
+        return res.status(503).json({
+          errorCode: 'SMS_UNAVAILABLE',
+          error: 'SMS no está disponible en este momento. Por favor reenvía el documento por otro canal.',
+        });
+      }
+    }
+
+    const channelLabel = { email: 'correo electrónico', whatsapp: 'WhatsApp', sms: 'SMS', both: 'correo y WhatsApp' };
     res.status(201).json({ id, status: 'pending', message: `Documento enviado por ${channelLabel[sendChannel]}` });
   } catch (err) {
     next(err);
