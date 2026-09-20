@@ -6,7 +6,7 @@ const { generateSecureToken, getTokenExpiry } = require('../utils/token');
 const { hashFile, hashBuffer } = require('../utils/hash');
 const { sendSignatureRequest, sendVitalSignatureRequest } = require('../services/emailService');
 const { sendSignatureWhatsApp, sendVitalWhatsApp } = require('../services/whatsappService');
-const { sendSignatureSms } = require('../services/smsService');
+const { sendSignatureSms, sendVitalSignatureSms } = require('../services/smsService');
 const { generateCertificate, fillVitalDocument, getVitalSignConfig } = require('../services/pdfService');
 const { triggerWebhook } = require('../services/webhookService');
 const { buildDailyTrend } = require('../utils/dailyTrend');
@@ -552,7 +552,9 @@ async function sendDocumentWithData(req, res, next) {
 
     if (sendChannel === 'sms') {
       try {
-        await sendSignatureSms(sendArgs);
+        // sendDocumentWithData es exclusiva del módulo Vital (ver fillVitalDocument arriba) —
+        // usa siempre el texto/branding propio de Vital, nunca sendSignatureSms (Asiste/legado).
+        await sendVitalSignatureSms(sendArgs);
       } catch (smsErr) {
         console.error('[sms] Fallo al enviar solicitud de firma (send-with-data):', smsErr.message);
         await fs.unlink(uploadPath).catch(() => {});
