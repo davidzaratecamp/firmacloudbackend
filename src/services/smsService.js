@@ -1,9 +1,15 @@
 const client = require('../config/twilio');
 const { normalizePhone } = require('./whatsappService');
 
-function buildSigningUrl(token) {
+// El SMS usa el codigo corto (sms_short_code, ver migration_sms_channel.sql) en vez del
+// token completo de 96 caracteres que usan email/WhatsApp -- ese token solo hace la URL
+// mas larga sin ganar nada en SMS (se paga por segmento). GET /api/s/:code redirige a
+// /firmar/:token del lado del servidor, transparente para el cliente. Va bajo /api porque
+// nginx solo proxya ese prefijo al backend -- una ruta "/s/:code" en la raiz del dominio
+// caeria en el catch-all del SPA (try_files ... /index.html) y nunca llegaria a Node.
+function buildSigningUrl(smsShortCode) {
   const publicBase = (process.env.PUBLIC_APP_URL || process.env.APP_URL || '').replace(/\/$/, '');
-  return `${publicBase}/firmar/${token}`;
+  return `${publicBase}/api/s/${smsShortCode}`;
 }
 
 // Cualquier tilde (á/í/ó/ú) fuerza a Twilio a codificar el SMS en UCS-2 (67
@@ -17,10 +23,10 @@ function toGsm7Safe(str) {
 }
 
 // Flujo original (sendDocument) — branding Asiste Health Care, mismo texto que sendSignatureRequest.
-async function sendSignatureSms({ clientName, clientPhone, token, documentName }) {
+async function sendSignatureSms({ clientName, clientPhone, smsShortCode, documentName }) {
   const to = `+${normalizePhone(clientPhone)}`;
   const body = toGsm7Safe(
-    `Hola ${clientName}, ${process.env.SMTP_FROM_NAME || 'Asiste Health Care'} te envió el documento "${documentName}" para firmar. Ingresa aquí (válido 72h): ${buildSigningUrl(token)}`
+    `Hola ${clientName}, ${process.env.SMTP_FROM_NAME || 'Asiste Health Care'} te envió el documento "${documentName}" para firmar. Ingresa aquí (válido 72h): ${buildSigningUrl(smsShortCode)}`
   );
 
   return client.messages.create({ from: process.env.TWILIO_SMS_FROM_NUMBER, to, body });
@@ -31,10 +37,10 @@ async function sendSignatureSms({ clientName, clientPhone, token, documentName }
 // costo por longitud, el SMS si (por segmento), asi que aqui prima el costo sobre la
 // fidelidad literal del texto aprobado. sendDocumentWithData es exclusiva de Vital, asi
 // que esta funcion reemplaza a sendSignatureSms ahi sin condicional.
-async function sendVitalSignatureSms({ clientName, clientPhone, token }) {
+async function sendVitalSignatureSms({ clientName, clientPhone, smsShortCode }) {
   const to = `+${normalizePhone(clientPhone)}`;
   const body = toGsm7Safe(
-    `Estimado(a) ${clientName}, desde Vital Health Insurance le enviamos el documento de autorización para tratamiento de datos personales. Fírmelo aquí (72h, un solo uso): ${buildSigningUrl(token)}`
+    `Estimado(a) ${clientName}, desde Vital Health Insurance le enviamos el documento de autorización para tratamiento de datos personales. Fírmelo aquí (72h, un solo uso): ${buildSigningUrl(smsShortCode)}`
   );
 
   return client.messages.create({ from: process.env.TWILIO_SMS_FROM_NUMBER, to, body });

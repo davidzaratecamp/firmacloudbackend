@@ -2,7 +2,7 @@ const { v4: uuidv4 } = require('uuid');
 const path = require('path');
 const fs = require('fs').promises;
 const db = require('../config/database');
-const { generateSecureToken, getTokenExpiry } = require('../utils/token');
+const { generateSecureToken, generateShortCode, getTokenExpiry } = require('../utils/token');
 const { hashFile, hashBuffer } = require('../utils/hash');
 const { sendSignatureRequest, sendVitalSignatureRequest } = require('../services/emailService');
 const { sendSignatureWhatsApp, sendVitalWhatsApp } = require('../services/whatsappService');
@@ -69,15 +69,18 @@ async function sendDocument(req, res, next) {
 
     const id = uuidv4();
     const token = generateSecureToken();
+    // Solo el canal sms usa un enlace corto (ver smsService.js) -- email/WhatsApp siguen
+    // con el token completo de siempre, sin cambio de conducta para ellos.
+    const smsShortCode = sendChannel === 'sms' ? generateShortCode() : null;
     const tokenExpiry = getTokenExpiry(parseInt(process.env.TOKEN_EXPIRES_HOURS) || 72);
 
     const serverLoc = getServerLocation();
 
     await db.query(
       `INSERT INTO signature_requests
-       (id, agent_id, document_name, document_original_path, document_hash, client_name, client_email, client_phone, send_channel, token, token_expires_at, agent_name_sent, agent_cedula, logged_agent_name, logged_agent_id, sent_from_ip, sent_from_location, webhook_url)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-      [id, req.user.id, docName, uploadPath, docHash, clientName, clientEmail || null, clientPhone || null, sendChannel, token, tokenExpiry, agentName || null, agentCedula || null, loggedAgentName || null, loggedAgentId || null, serverLoc?.ip || null, serverLoc?.location || null, webhookUrl || null]
+       (id, agent_id, document_name, document_original_path, document_hash, client_name, client_email, client_phone, send_channel, token, sms_short_code, token_expires_at, agent_name_sent, agent_cedula, logged_agent_name, logged_agent_id, sent_from_ip, sent_from_location, webhook_url)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      [id, req.user.id, docName, uploadPath, docHash, clientName, clientEmail || null, clientPhone || null, sendChannel, token, smsShortCode, tokenExpiry, agentName || null, agentCedula || null, loggedAgentName || null, loggedAgentId || null, serverLoc?.ip || null, serverLoc?.location || null, webhookUrl || null]
     );
 
     await db.query(
@@ -85,7 +88,7 @@ async function sendDocument(req, res, next) {
       [id, 'DOCUMENT_SENT', JSON.stringify({ channel: sendChannel, email: clientEmail, phone: clientPhone })]
     );
 
-    const sendArgs = { clientName, clientEmail, clientPhone, token, documentName: docName, agentName: req.user.name };
+    const sendArgs = { clientName, clientEmail, clientPhone, token, smsShortCode, documentName: docName, agentName: req.user.name };
 
     if (sendChannel === 'email' || sendChannel === 'both') {
       try {
@@ -485,20 +488,21 @@ async function sendDocumentWithData(req, res, next) {
     const docHash = hashBuffer(filledPdfBuffer);
 
     const token = generateSecureToken();
+    const smsShortCode = sendChannel === 'sms' ? generateShortCode() : null;
     const tokenExpiry = getTokenExpiry(parseInt(process.env.TOKEN_EXPIRES_HOURS) || 72);
     const serverLoc = getServerLocation();
 
     await db.query(
       `INSERT INTO signature_requests
        (id, agent_id, document_name, document_original_path, document_hash,
-        client_name, client_email, client_phone, send_channel, token, token_expires_at,
+        client_name, client_email, client_phone, send_channel, token, sms_short_code, token_expires_at,
         agent_name_sent, agent_cedula, logged_agent_name, logged_agent_id,
         sent_from_ip, sent_from_location, webhook_url,
         document_data, sign_page_index)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       [
         id, req.user.id, docName, uploadPath, docHash,
-        clientName, clientEmail || null, clientPhone || null, sendChannel, token, tokenExpiry,
+        clientName, clientEmail || null, clientPhone || null, sendChannel, token, smsShortCode, tokenExpiry,
         agentName || null, agentCedula || null, loggedAgentName || null, loggedAgentId || null,
         serverLoc?.ip || null, serverLoc?.location || null,
         webhookUrl || null,
@@ -512,7 +516,7 @@ async function sendDocumentWithData(req, res, next) {
       [id, 'DOCUMENT_SENT', JSON.stringify({ channel: sendChannel, email: clientEmail, phone: clientPhone, ventaId: ventaId || null })]
     );
 
-    const sendArgs = { clientName, clientEmail, clientPhone, token, documentName: docName, agentName: req.user.name || agentName };
+    const sendArgs = { clientName, clientEmail, clientPhone, token, smsShortCode, documentName: docName, agentName: req.user.name || agentName };
 
     if (sendChannel === 'email' || sendChannel === 'both') {
       try {

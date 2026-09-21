@@ -323,4 +323,22 @@ async function submitSignature(req, res, next) {
   }
 }
 
-module.exports = { getSigningPage, recordView, getDocumentForSigning, submitSignature };
+// GET /api/s/:code — resuelve el codigo corto que usa el SMS (ver smsService.js /
+// migration_sms_channel.sql) y redirige al token completo de siempre. Email/WhatsApp no
+// pasan por aqui, siguen apuntando directo a /firmar/:token.
+async function resolveShortLink(req, res, next) {
+  try {
+    const [rows] = await db.query(
+      'SELECT token FROM signature_requests WHERE sms_short_code = ?',
+      [req.params.code]
+    );
+    if (!rows.length) return res.status(404).json({ error: 'Enlace no válido' });
+
+    const appUrl = (process.env.APP_URL || '').replace(/\/$/, '');
+    res.redirect(302, `${appUrl}/firmar/${rows[0].token}`);
+  } catch (err) {
+    next(err);
+  }
+}
+
+module.exports = { getSigningPage, recordView, getDocumentForSigning, submitSignature, resolveShortLink };
