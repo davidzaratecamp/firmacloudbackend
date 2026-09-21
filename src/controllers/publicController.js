@@ -59,7 +59,7 @@ async function getSigningPage(req, res, next) {
   try {
     const token = cleanToken(req.params.token);
     const [rows] = await db.query(
-      'SELECT id, document_name, client_name, client_email, client_phone, status, token_expires_at, webhook_url, npn_name FROM signature_requests WHERE token = ?',
+      'SELECT id, document_name, client_name, client_email, client_phone, status, token_expires_at, webhook_url, npn_name, document_data FROM signature_requests WHERE token = ?',
       [token]
     );
 
@@ -75,7 +75,7 @@ async function getSigningPage(req, res, next) {
     if (sig.status === 'expired') return res.status(410).json({ error: 'Este enlace ha expirado' });
     if (sig.status === 'failed') return res.status(404).json({ error: 'Enlace no válido' });
 
-    res.json({ id: sig.id, documentName: sig.document_name, clientName: sig.client_name, status: sig.status });
+    res.json({ id: sig.id, documentName: sig.document_name, clientName: sig.client_name, status: sig.status, isVital: getDocKind(sig) === 'vital' });
   } catch (err) {
     next(err);
   }
