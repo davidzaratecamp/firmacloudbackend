@@ -71,7 +71,9 @@ X-Api-Key: 68d7766da344ae61c49f5e65efb7ae1c813e6547dccb74cd6ece8370e87dc54e
 }
 ```
 
-> **⚠️ Canal `whatsapp` / `both` — todavía no disponible (2026-09-17).** El número de WhatsApp Business dedicado a Vital (`+1 307-357-2609`) y su plantilla de mensaje (`vital_health_insurance`) están en revisión/aprobación en Meta. Mientras no queden Aprobados/Conectados, cualquier envío con `sendChannel: "whatsapp"` o `"both"` devuelve `503 WHATSAPP_UNAVAILABLE` (ver tabla de errores abajo) — **no es un error de tu integración**. Usa `sendChannel: "email"` para todas las pruebas hasta que el equipo de FirmaCloud confirme que WhatsApp ya está activo.
+> **⚠️ Canal `whatsapp` / `both` — todavía no disponible (2026-09-17).** El número de WhatsApp Business dedicado a Vital (`+1 307-357-2609`) y su plantilla de mensaje (`vital_health_insurance`) están en revisión/aprobación en Meta. Mientras no queden Aprobados/Conectados, cualquier envío con `sendChannel: "whatsapp"` o `"both"` devuelve `503 WHATSAPP_UNAVAILABLE` (ver tabla de errores abajo) — **no es un error de tu integración**. Usa `sendChannel: "email"` o `"sms"` para todas las pruebas hasta que el equipo de FirmaCloud confirme que WhatsApp ya está activo.
+>
+> **✅ Canal `sms` — disponible ya (2026-09-21).** A diferencia de WhatsApp, no depende de ninguna aprobación externa (Meta) — es Twilio directo, ya en producción. Usa `sendChannel: "sms"` con `clientPhone` desde ya.
 
 ### Campos de la raíz
 
@@ -79,8 +81,8 @@ X-Api-Key: 68d7766da344ae61c49f5e65efb7ae1c813e6547dccb74cd6ece8370e87dc54e
 |---|---|---|
 | `clientName` | Sí | Nombre completo del cliente que va a firmar |
 | `clientEmail` | Si `sendChannel` es `email` o `both` | Email del cliente |
-| `clientPhone` | Si `sendChannel` es `whatsapp` o `both` | Teléfono con código de país (ej. `+13001234567`) — **canal aún no disponible, ver nota arriba** |
-| `sendChannel` | No (default `email`) | `email` \| `whatsapp` \| `both` — usa `email` por ahora |
+| `clientPhone` | Si `sendChannel` es `whatsapp`, `sms` o `both` | Teléfono con código de país (ej. `+13001234567`) — para `whatsapp`/`both` **canal aún no disponible, ver nota arriba**; para `sms` sí funciona ya |
+| `sendChannel` | No (default `email`) | `email` \| `sms` \| `whatsapp` \| `both` — usa `email` o `sms` por ahora (`whatsapp`/`both` bloqueados, ver nota) |
 | `agentName` | Sí (llamando con API key) | Nombre del agente que envía |
 | `agentCedula` | Sí (llamando con API key) | Identificador/cédula del agente |
 | `webhookUrl` | No, pero muy recomendado | URL propia donde recibir los eventos de estado (ver sección 4) |
@@ -128,11 +130,15 @@ Guarda el `id` — es el identificador que usarás para consultar el estado o de
 |---|---|
 | `400` | Falta `clientName`, `documentData.vital`, `agentName`/`agentCedula`, o el email/teléfono no es válido para el canal elegido |
 | `401` | `X-Api-Key` inválida o ausente |
-| `503` | `EMAIL_UNAVAILABLE` o `WHATSAPP_UNAVAILABLE` — no se pudo enviar por el canal elegido en ese momento; no se creó el registro, se puede reintentar. **`WHATSAPP_UNAVAILABLE` es esperado hasta que Meta apruebe el número/plantilla de Vital** (ver nota arriba) — no reintentar en loop por este canal hasta recibir confirmación de FirmaCloud |
+| `503` | `EMAIL_UNAVAILABLE`, `SMS_UNAVAILABLE` o `WHATSAPP_UNAVAILABLE` — no se pudo enviar por el canal elegido en ese momento; no se creó el registro, se puede reintentar. **`WHATSAPP_UNAVAILABLE` es esperado hasta que Meta apruebe el número/plantilla de Vital** (ver nota arriba) — no reintentar en loop por este canal hasta recibir confirmación de FirmaCloud |
 
 ### Contenido del mensaje que recibe el cliente
 
-FirmaCloud arma el mensaje (correo y, cuando esté disponible, WhatsApp) con branding **"Vital Health Insurance"** y el mismo texto en ambos canales: agradece/explica que el documento es la autorización de tratamiento de datos personales necesaria para continuar con la solicitud de seguro médico, e incluye un botón/enlace **"Firma Digital"** hacia el formulario. No es configurable por la intranet — el body de la petición solo controla los datos que se llenan en el PDF, no el copy del mensaje de invitación a firmar.
+FirmaCloud arma el mensaje (correo, SMS y, cuando esté disponible, WhatsApp) con branding **"Vital Health Insurance"**, mismo tono en los tres canales: agradece/explica que el documento es la autorización de tratamiento de datos personales necesaria para continuar con la solicitud de seguro médico. Email y WhatsApp incluyen un botón/enlace "Firma Digital"; el SMS lleva el enlace directo en el texto (sin botón — SMS no lo soporta), con un enlace corto propio (no el mismo link que email/WhatsApp) para no gastar caracteres de más:
+
+> Estimado(a) [nombre], desde Vital Health Insurance le enviamos el documento de autorizacion para tratamiento de datos personales. Firmelo aqui (72h, un solo uso): https://firmahealthcare.com/api/s/[codigo]
+
+(sin tildes a propósito — así el SMS queda en 1 solo segmento en vez de varios, más barato). No es configurable por la intranet — el body de la petición solo controla los datos que se llenan en el PDF, no el copy del mensaje de invitación a firmar.
 
 ---
 
@@ -247,12 +253,16 @@ Devuelve el PDF firmado (`Content-Type: application/pdf`) una vez que el estado 
 4. Reiniciar el backend para que tome las nuevas variables de entorno.
 5. **Este documento ya incluye la `VITAL_API_KEY` real** (sección 1) — trátalo como confidencial a partir de aquí: no lo subas a un repositorio público ni lo reenvíes por canales sin control de acceso. Si la key se rota en el futuro, actualizar este documento también.
 
+### Para el canal `sms` (disponible ya, 2026-09-21)
+
+✅ Completo, nada pendiente. Usa Twilio directo (número `+16265079499`, cuenta propia de Vital/Asiste Health Care, ya con campaña A2P 10DLC aprobada) — no depende de Meta ni de ninguna aprobación externa. Solo avisar al equipo de Vital que ya puede mandar `sendChannel: "sms"` con `clientPhone`.
+
 ### Para el canal `whatsapp` / `both` (bloqueado hasta que Meta apruebe)
 
 6. Esperar a que en el Business Manager de Meta el número `+1 307-357-2609` quede **Conectado/verificado** y la plantilla `vital_health_insurance` quede **Aprobada** (portafolio "Asiste Health Care").
 7. Confirmar cómo quedó configurado en Meta el botón de la plantilla ("Visitar sitio web dinámico") — FirmaCloud asume `sub_type: url` con el token de firma como sufijo dinámico de la URL base configurada en el template.
 8. Una vez aprobados ambos, poner en el `.env` del backend: `VITAL_WHATSAPP_ACCESS_TOKEN` (token permanente de System User con permiso sobre ese número), `VITAL_WHATSAPP_PHONE_NUMBER_ID` (el ID interno de Meta del número, no el número en sí), `VITAL_WHATSAPP_TEMPLATE_NAME=vital_health_insurance` y `VITAL_WHATSAPP_TEMPLATE_LANG` (el código de idioma exacto con el que quedó registrada la plantilla en Meta).
 9. Reiniciar el backend. A partir de ahí, `sendChannel: "whatsapp"`/`"both"` funcionan sin más cambios de código ni de contrato de API — el body que manda la intranet no cambia.
-10. Avisar al equipo de Vital que ya pueden probar `whatsapp`/`both` — hasta entonces, deben seguir usando `email`.
+10. Avisar al equipo de Vital que ya pueden probar `whatsapp`/`both` — hasta entonces, deben seguir usando `email`/`sms`.
 
 Ver `claude/planObamaCareFirmaTratamiento.md` (repo `firmacloudbackend`) para el detalle técnico completo del módulo, coordenadas de la plantilla, y el historial de decisiones detrás de este contrato de API.
