@@ -742,16 +742,27 @@ async function fillVitalDocument(documentData) {
     const cleanValue = (field.prefix || '') + sanitizeForPdf(value);
     const size = field.fontSize || 10;
     const fieldFont = field.bold ? fontBold : font;
+    const textWidth = fieldFont.widthOfTextAtSize(cleanValue, size);
+
+    // Blancos del párrafo de consentimiento (consentClientName/consentAgentName, ver
+    // blankX/blankWidth en el config): un nombre corto se centra en el blanco impreso; uno
+    // largo se ancla en field.x (inicio del blanco, comportamiento de siempre) para que no
+    // invada el texto fijo que sigue (',' / 'to serve'). Centrar solo si el nombre ocupa
+    // <=65% del blanco evita que uno largo-pero-que-cabe quede descentrado sin necesidad.
+    let drawX = field.x;
+    if (field.blankWidth && textWidth <= field.blankWidth * 0.65) {
+      drawX = field.blankX + (field.blankWidth - textWidth) / 2;
+    }
 
     pageObj.drawText(cleanValue, {
-      x: field.x, y: field.y,
+      x: drawX, y: field.y,
       size,
       font: fieldFont,
       color: rgb(0, 0, 0),
     });
 
     if (field.underline) {
-      drawUnderline(pageObj, field.x, field.y, fieldFont.widthOfTextAtSize(cleanValue, size));
+      drawUnderline(pageObj, drawX, field.y, textWidth);
     }
   }
 
