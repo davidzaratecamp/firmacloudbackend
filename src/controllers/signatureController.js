@@ -542,6 +542,7 @@ async function sendDocumentWithData(req, res, next) {
         await sendVitalWhatsApp(sendArgs);
       } catch (waErr) {
         if (sendChannel === 'whatsapp') {
+          console.error('[whatsapp] Fallo al enviar solicitud de firma (send-with-data):', waErr.message);
           await fs.unlink(uploadPath).catch(() => {});
           await db.query('DELETE FROM activity_logs WHERE signature_request_id = ?', [id]);
           await db.query('DELETE FROM signature_requests WHERE id = ?', [id]);
