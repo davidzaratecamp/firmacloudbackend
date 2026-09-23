@@ -1,4 +1,5 @@
 const transporter = require('../config/email');
+const vitalTransporter = require('../config/vitalEmail');
 
 async function sendSignatureRequest({ clientName, clientEmail, token, documentName, agentName }) {
   const signingUrl = `${process.env.APP_URL}/firmar/${token}`;
@@ -133,8 +134,8 @@ async function sendVitalSignatureRequest({ clientName, clientEmail, token }) {
 
   const text = `Estimado(a) ${clientName},\n\nDesde Vital Health Insurance le hacemos llegar el documento de autorización para el tratamiento de sus datos personales, necesario para continuar con el proceso de su solicitud de seguro médico.\n\nPuede revisarlo y firmarlo digitalmente en el siguiente enlace (válido por 72 horas, un solo uso):\n${signingUrl}\n\nQuedamos atentos ante cualquier consulta.\n\nSaludos cordiales,\nEquipo Vital Health Insurance`;
 
-  await transporter.sendMail({
-    from: `"${process.env.SMTP_FROM_NAME}" <${process.env.SMTP_FROM_EMAIL}>`,
+  await vitalTransporter.sendMail({
+    from: `"${process.env.VITAL_SMTP_FROM_NAME || 'Vital Health Insurance'}" <${process.env.VITAL_SMTP_FROM_EMAIL || process.env.VITAL_SMTP_USER}>`,
     to: clientEmail,
     subject: 'Documento de autorización para el tratamiento de sus datos personales',
     text,
